@@ -11,6 +11,7 @@ use glium::glutin::{self, ElementState, Event, VirtualKeyCode, WindowEvent};
 use glium::index::PrimitiveType;
 use glium::Surface;
 
+use std::collections::HashMap;
 use std::fs;
 use std::io::{Read, Write};
 use std::sync::mpsc;
@@ -75,6 +76,8 @@ struct Watchers {
     uv_watcher: RecommendedWatcher,
     surface_watcher: RecommendedWatcher,
 }
+
+type Shaders = HashMap<String, String>;
 
 fn file_update_thread<'a>(
     file_name: &'a str,
@@ -187,7 +190,7 @@ fn init_watchers() -> Watchers {
     }
 }
 
-fn generate_sdf_shader<'a>(sdf_source: &'a str) -> String {
+fn generate_sdf_shader<'a>(shaders: &Shaders) -> String {
     format!(
         "
     #version 330
@@ -206,6 +209,10 @@ fn generate_sdf_shader<'a>(sdf_source: &'a str) -> String {
     //}}
 
     {sdf_source}
+
+    {uv_source}
+
+    {surface_source}
 
     void main() {{
         // Compute the ray vector
@@ -239,7 +246,9 @@ fn generate_sdf_shader<'a>(sdf_source: &'a str) -> String {
             normalize(current_point), normalize(vec3(0, 5, 0))));
     }}
 ",
-        sdf_source = sdf_source
+        sdf_source = shaders["sdf_shader"],
+        uv_source = shaders["uv_shader"],
+        surface_source = shaders["surface_shader"],
     )
 }
 
@@ -250,6 +259,26 @@ fn compile<'a>(display: &glium::Display, fs_shader: &'a str) -> Option<glium::Pr
             println!("{}", err_msg);
             None
         }
+    }
+}
+
+fn update_shader(
+    display: &glium::Display,
+    current_shader_name: &String,
+    shaders: &mut Shaders,
+    recv_channel: &mpsc::Receiver<String>,
+) -> Option<glium::Program> {
+    match recv_channel.try_recv() {
+        Ok(sdf_string) => {
+            if sdf_string != shaders[current_shader_name] {
+                println!("{}", sdf_string);
+                shaders.insert(current_shader_name.clone(), sdf_string);
+                compile(&display, &generate_sdf_shader(shaders))
+            } else {
+                None
+            }
+        }
+        Err(_) => None,
     }
 }
 
@@ -297,11 +326,15 @@ fn main() {
         glium::IndexBuffer::new(&display, PrimitiveType::TriangleStrip, &[1 as u16, 2, 0, 3])
             .unwrap();
 
-    let mut current_sdf_string = watchers.sdf_update.recv().unwrap();
-    let mut current_uv_string = watchers.uv_update.recv().unwrap();
-    let mut current_surface_string = watchers.surface_update.recv().unwrap();
+    let mut shaders: Shaders = HashMap::new();
+    shaders.insert("sdf_shader".to_owned(), watchers.sdf_update.recv().unwrap());
+    shaders.insert("uv_shader".to_owned(), watchers.uv_update.recv().unwrap());
+    shaders.insert(
+        "surface_shader".to_owned(),
+        watchers.surface_update.recv().unwrap(),
+    );
 
-    let mut program = compile(&display, &generate_sdf_shader(&current_sdf_string)).unwrap();
+    let mut program = compile(&display, &generate_sdf_shader(&shaders)).unwrap();
 
     let mut camera = camera::CameraState::new();
     camera.set_position((0.0, 0.0, 10.0));
@@ -352,19 +385,14 @@ fn main() {
         });
 
         // See if anything has changed
-        match watchers.sdf_update.try_recv() {
-            Ok(sdf_string) => {
-                if sdf_string != current_sdf_string {
-                    current_sdf_string = sdf_string;
-                    println!("{}", current_sdf_string);
-                    if let Some(prog) = compile(&display, &generate_sdf_shader(&current_sdf_string))
-                    {
-                        program = prog;
-                    }
-                }
-            }
-            Err(_) => {}
-        };
+        if let Some(prog) = update_shader(
+            &display,
+            &"sdf_shader".to_owned(),
+            &mut shaders,
+            &watchers.sdf_update,
+        ) {
+            program = prog;
+        }
 
         // Exit if the user clicks the X
         if should_exit {
