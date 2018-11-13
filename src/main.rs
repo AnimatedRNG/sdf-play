@@ -87,8 +87,6 @@ fn file_update_thread<'a>(
     loop {
         match rx.recv() {
             Ok(event) => {
-                println!("{:?}", event);
-                println!("{:?}", file_name);
                 tx.send(fs::read_to_string(file_name).unwrap()).unwrap();
             }
             Err(e) => println!("watch error: {:?}", e),
@@ -189,6 +187,15 @@ fn init_watchers() -> Watchers {
         uv_watcher: uv_watcher,
         surface_watcher: surface_watcher,
     }
+}
+
+fn preprocess_shaders(shaders: &mut Shaders) {
+    let line_header: String = "#line 0\n".to_owned();
+    let new_shaders: Shaders = shaders
+        .iter()
+        .map(|(k, v)| (k.clone(), format!("{}{}", line_header, v)))
+        .collect();
+    *shaders = new_shaders;
 }
 
 fn generate_sdf_shader<'a>(shaders: &Shaders) -> String {
@@ -302,8 +309,8 @@ fn update_shader(
     match recv_channel.try_recv() {
         Ok(sdf_string) => {
             if sdf_string != shaders[current_shader_name] {
-                println!("{}", sdf_string);
                 shaders.insert(current_shader_name.clone(), sdf_string);
+                preprocess_shaders(shaders);
                 compile(&display, &generate_sdf_shader(shaders))
             } else {
                 None
@@ -385,7 +392,6 @@ fn main() {
         let inv: glm::Mat4 = glm::inverse(&(camera.get_perspective() * camera.get_view()));
         let origin: glm::Vec3 =
             (glm::inverse(&camera.get_view()) * glm::vec4(0.0, 0.0, 0.0, 1.0)).xyz();
-        //println!("View {}", glm::inverse(&camera.get_view()));
 
         // Render SDF
         target.clear_color(0.0, 1.0, 0.0, 1.0);
