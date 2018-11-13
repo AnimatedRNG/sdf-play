@@ -21,37 +21,37 @@ use std::time::{Duration, Instant};
 mod camera;
 
 const PASSTHROUGH_VS: &'static str = "
-    #version 330
-    in vec2 position;
-    in vec2 tex_coords;
-    out vec2 ndc;
-    void main() {
-        gl_Position = vec4(position, 0.0, 1.0);
-        ndc = tex_coords;
-    }
+#version 330
+in vec2 position;
+in vec2 tex_coords;
+out vec2 ndc;
+void main() {
+    gl_Position = vec4(position, 0.0, 1.0);
+    ndc = tex_coords;
+}
 ";
 
 const SAMPLE_SDF: &'static str = "
-    float sdf(in vec3 p) {
-        vec2 q = vec2(length(p.xz) - 3.0, p.y);
-        return length(q) - 2.0;
-    }
+float sdf(in vec3 p) {
+    vec2 q = vec2(length(p.xz) - 3.0, p.y);
+    return length(q) - 2.0;
+}
 ";
 
 const SAMPLE_UV: &'static str = "
-    #define M_PI 3.1415926535897932384626433832795
+#define M_PI 3.1415926535897932384626433832795
 
-    vec2 uv(in vec3 p) {
-        float theta = (atan(p.y, p.x) + M_PI) / (2 * M_PI);
-        float phi = (atan(length(p.xy), p.z) + M_PI) / (2 * M_PI);
-        return vec2(theta, phi);
-    }
+vec2 uv(in vec3 p) {
+    float theta = (atan(p.y, p.x) + M_PI) / (2 * M_PI);
+    float phi = (atan(length(p.xy), p.z) + M_PI) / (2 * M_PI);
+    return vec2(theta, phi);
+}
 ";
 
 const SAMPLE_SURFACE: &'static str = "
-    vec3 surface(in vec3 position, in vec3 normal, in vec2 uv) {
-        return vec3(uv, 0.0);
-    }
+vec3 surface(in vec3 position, in vec3 normal, in vec2 uv) {
+    return vec3(uv, 0.0);
+}
 ";
 
 fn to_mat4(mat: glm::Mat4) -> [[f32; 4]; 4] {
@@ -242,8 +242,10 @@ fn generate_sdf_shader<'a>(shaders: &Shaders) -> String {
         }}
 
         // Really simple lighting model
-        color = vec4(dot(
-            normalize(current_point), normalize(vec3(0, 5, 0))));
+        //color = vec4(dot(
+            //normalize(current_point), normalize(vec3(0, 5, 0))));
+          vec2 uv_val = uv(current_point);
+          color = vec4(surface(current_point, vec3(0.0), uv_val), 0);
     }}
 ",
         sdf_source = shaders["sdf_shader"],
@@ -390,6 +392,24 @@ fn main() {
             &"sdf_shader".to_owned(),
             &mut shaders,
             &watchers.sdf_update,
+        ) {
+            program = prog;
+        }
+
+        if let Some(prog) = update_shader(
+            &display,
+            &"uv_shader".to_owned(),
+            &mut shaders,
+            &watchers.uv_update,
+        ) {
+            program = prog;
+        }
+
+        if let Some(prog) = update_shader(
+            &display,
+            &"surface_shader".to_owned(),
+            &mut shaders,
+            &watchers.surface_update,
         ) {
             program = prog;
         }
