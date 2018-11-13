@@ -4,7 +4,6 @@ version = "0.1.0"
 authors = ["Srinivas Kaza <srinivas@kaza.io>"]
 
 [dependencies]
-glium = "*"
-glutin = "*"
 notify = "4.0.0"
 nalgebra-glm = "0.1"
+conrod = { version = "0.55.0", features = ["glium", "winit"] }

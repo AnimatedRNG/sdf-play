@@ -1,5 +1,7 @@
-extern crate glutin;
+extern crate conrod;
 extern crate nalgebra_glm as glm;
+
+use conrod::backend::glium::glium::glutin;
 
 pub struct CameraState {
     aspect_ratio: f32,

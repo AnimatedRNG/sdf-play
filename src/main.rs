@@ -1,5 +1,5 @@
 #[macro_use]
-extern crate glium;
+extern crate conrod;
 
 extern crate nalgebra_glm as glm;
 
@@ -7,9 +7,12 @@ extern crate notify;
 
 use notify::{DebouncedEvent, RecommendedWatcher, RecursiveMode, Watcher};
 
+use conrod::backend::glium::glium;
+
 use glium::glutin::{self, ElementState, Event, VirtualKeyCode, WindowEvent};
 use glium::index::PrimitiveType;
 use glium::Surface;
+use glium::{implement_vertex, uniform};
 
 use std::collections::HashMap;
 use std::fs;
@@ -331,6 +334,10 @@ fn main() {
     let context = glutin::ContextBuilder::new();
     let display = glium::Display::new(window, context, &events_loop).unwrap();
 
+    let mut ui = conrod::UiBuilder::new([400 as f64, 400 as f64]).build();
+    let image_map = conrod::image::Map::<glium::texture::Texture2d>::new();
+    let mut renderer = conrod::backend::glium::Renderer::new(&display).unwrap();
+
     let watchers = init_watchers();
 
     let vertex_buffer = {
@@ -412,6 +419,11 @@ fn main() {
                 },
                 &Default::default(),
             ).unwrap();
+
+        if let Some(primitives) = ui.draw_if_changed() {
+            renderer.fill(&display, primitives, &image_map);
+            renderer.draw(&display, &mut target, &image_map).unwrap();
+        }
         target.finish().unwrap();
 
         // Handle events
@@ -419,7 +431,7 @@ fn main() {
         events_loop.poll_events(|event| match event {
             Event::WindowEvent { event, window_id } => if window_id == display.gl_window().id() {
                 match event {
-                    WindowEvent::CloseRequested => should_exit = true,
+                    WindowEvent::Closed => should_exit = true,
                     ev => camera.process_input(&ev),
                 }
             },
