@@ -88,6 +88,7 @@ fn file_update_thread<'a>(
         match rx.recv() {
             Ok(event) => {
                 println!("{:?}", event);
+                println!("{:?}", file_name);
                 tx.send(fs::read_to_string(file_name).unwrap()).unwrap();
             }
             Err(e) => println!("watch error: {:?}", e),
@@ -203,16 +204,45 @@ fn generate_sdf_shader<'a>(shaders: &Shaders) -> String {
     in vec2 ndc;
     out vec4 color;
 
-    //float sdTorus(in vec3 p, in vec2 t) {{
-    //    vec2 q = vec2(length(p.xz) - t.x, p.y);
-    //    return length(q) - t.y;
-    //}}
+    #define EPS 1e-3
 
     {sdf_source}
 
     {uv_source}
 
     {surface_source}
+
+    float h(in vec3 p, in uint index) {{
+        vec3 forward = p;
+        vec3 backward = p;
+        forward[index] += EPS;
+        backward[index] -= EPS;
+        return dot(vec3(sdf(backward), sdf(p), sdf(forward)), vec3(1.0, 2.0, 1.0));
+    }}
+
+    float h_p(in vec3 p, in uint index) {{
+        vec3 forward = p;
+        vec3 backward = p;
+        forward[index] += EPS;
+        backward[index] -= EPS;
+        return dot(vec2(sdf(backward), sdf(forward)), vec2(1.0, -1.0));
+    }}
+
+    vec3 sobel_gradient_estimate(in vec3 p) {{
+        float h_x = h_p(p, uint(0)) * h(p, uint(1)) * h(p, uint(2));
+        float h_y = h_p(p, uint(1)) * h(p, uint(2)) * h(p, uint(0));
+        float h_z = h_p(p, uint(2)) * h(p, uint(0)) * h(p, uint(1));
+
+        return normalize(-vec3(h_x, h_y, h_z));
+    }}
+
+    vec3 simple_gradient_estimate(in vec3 p) {{
+        float h_x = sdf(p + vec3(EPS, 0.0, 0.0)) - sdf(p - vec3(EPS, 0.0, 0.0));
+        float h_y = sdf(p + vec3(0.0, EPS, 0.0)) - sdf(p - vec3(0.0, EPS, 0.0));
+        float h_z = sdf(p + vec3(0.0, 0.0, EPS)) - sdf(p - vec3(0.0, 0.0, EPS));
+
+        return normalize(vec3(h_x, h_y, h_z));
+    }}
 
     void main() {{
         // Compute the ray vector
@@ -230,7 +260,6 @@ fn generate_sdf_shader<'a>(shaders: &Shaders) -> String {
         // Perform a few iterations of sphere tracing,
         // exit if we're too far away
         for (int k = 0; k < 25; k++) {{
-            //radius = sdf(current_point, vec2(3, 2));
             radius = sdf(current_point);
             total_traveled += radius;
             current_point += ray_vec * radius;
@@ -242,10 +271,10 @@ fn generate_sdf_shader<'a>(shaders: &Shaders) -> String {
         }}
 
         // Really simple lighting model
-        //color = vec4(dot(
-            //normalize(current_point), normalize(vec3(0, 5, 0))));
-          vec2 uv_val = uv(current_point);
-          color = vec4(surface(current_point, vec3(0.0), uv_val), 0);
+        vec2 uv_val = uv(current_point);
+        vec3 normal_sample_pt = current_point - ray_vec * EPS * 100.0;
+        vec3 normal = sobel_gradient_estimate(normal_sample_pt);
+        color = vec4(surface(current_point, normal, uv_val), 0);
     }}
 ",
         sdf_source = shaders["sdf_shader"],
