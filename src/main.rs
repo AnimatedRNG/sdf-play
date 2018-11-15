@@ -93,17 +93,15 @@ fn file_update_thread<'a>(
     tx: mpsc::Sender<String>,
 ) {
     loop {
-        match rx.recv() {
-            Ok(_) => match fs::read_to_string(file_name) {
-                Ok(file_contents) => {
-                    tx.send(file_contents).unwrap();
-                }
-                Err(_) => {
-                    println!("Did you delete {}? I can't read it", file_name);
-                }
-            },
-            Err(e) => println!("watch error: {:?}", e),
-        }
+        rx.recv_timeout(Duration::from_secs(1)).ok();
+        match fs::read_to_string(file_name) {
+            Ok(file_contents) => {
+                tx.send(file_contents).unwrap();
+            }
+            Err(_) => {
+                println!("Did you delete {}? I can't read it", file_name);
+            }
+        };
     }
 }
 
