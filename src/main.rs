@@ -1,3 +1,4 @@
+#[allow(unused_imports)]
 #[macro_use]
 extern crate conrod;
 
@@ -9,7 +10,7 @@ use notify::{DebouncedEvent, RecommendedWatcher, RecursiveMode, Watcher};
 
 use conrod::backend::glium::glium;
 
-use glium::glutin::{self, ElementState, Event, VirtualKeyCode, WindowEvent};
+use glium::glutin::{self, Event, WindowEvent};
 use glium::index::PrimitiveType;
 use glium::Surface;
 use glium::{implement_vertex, uniform};
@@ -70,6 +71,7 @@ fn to_vec3(mat: glm::Vec3) -> [f32; 3] {
     [mat[0], mat[1], mat[2]]
 }
 
+#[allow(dead_code)]
 struct Watchers {
     sdf_update: mpsc::Receiver<String>,
     uv_update: mpsc::Receiver<String>,
@@ -198,12 +200,9 @@ fn init_watchers() -> Watchers {
 }
 
 fn preprocess_shaders(shaders: &mut Shaders) {
-    let line_header: String = "#line 0\n".to_owned();
-    let new_shaders: Shaders = shaders
-        .iter()
-        .map(|(k, v)| (k.clone(), format!("{}{}", line_header, v)))
-        .collect();
-    *shaders = new_shaders;
+    shaders
+        .iter_mut()
+        .for_each(|(_, v)| *v = format!("#line 0\n{}", v))
 }
 
 fn generate_sdf_shader<'a>(shaders: &Shaders) -> String {
@@ -220,6 +219,8 @@ fn generate_sdf_shader<'a>(shaders: &Shaders) -> String {
     out vec4 color;
 
     #define EPS 1e-3
+
+    {hg_source}
 
     {sdf_source}
 
@@ -289,9 +290,10 @@ fn generate_sdf_shader<'a>(shaders: &Shaders) -> String {
         vec2 uv_val = uv(current_point);
         vec3 normal_sample_pt = current_point - ray_vec * EPS * 100.0;
         vec3 normal = sobel_gradient_estimate(normal_sample_pt);
-        color = vec4(surface(current_point, normal, uv_val), 0);
+        color = vec4(surface(origin, current_point, normal, uv_val), 0);
     }}
 ",
+        hg_source = shaders["hg_shader"],
         sdf_source = shaders["sdf_shader"],
         uv_source = shaders["uv_shader"],
         surface_source = shaders["surface_shader"],
@@ -377,6 +379,10 @@ fn main() {
             .unwrap();
 
     let mut shaders: Shaders = HashMap::new();
+    shaders.insert(
+        "hg_shader".to_owned(),
+        fs::read_to_string("sdf/hg_sdf.glsl").unwrap(),
+    );
     shaders.insert("sdf_shader".to_owned(), watchers.sdf_update.recv().unwrap());
     shaders.insert("uv_shader".to_owned(), watchers.uv_update.recv().unwrap());
     shaders.insert(

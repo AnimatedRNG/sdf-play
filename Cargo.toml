@@ -7,3 +7,4 @@ authors = ["Srinivas Kaza <srinivas@kaza.io>"]
 notify = "4.0.0"
 nalgebra-glm = "0.1"
 conrod = { version = "0.55.0", features = ["glium", "winit"] }
+find_folder = "*"
