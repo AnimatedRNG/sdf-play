@@ -6,5 +6,5 @@ authors = ["Srinivas Kaza <srinivas@kaza.io>"]
 [dependencies]
 notify = "4.0.0"
 nalgebra-glm = "0.1"
-conrod = { version = "0.55.0", features = ["glium", "winit"] }
+glium = "0.22.0"
 find_folder = "*"
