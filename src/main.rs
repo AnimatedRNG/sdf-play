@@ -215,6 +215,7 @@ fn generate_sdf_shader<'a>(shaders: &Shaders) -> String {
 
     uniform mat4 inv;
     uniform vec3 origin;
+    uniform float time;
 
     uniform float near;
 
@@ -226,10 +227,6 @@ fn generate_sdf_shader<'a>(shaders: &Shaders) -> String {
     {hg_source}
 
     {sdf_source}
-
-    {uv_source}
-
-    {surface_source}
 
     float h(in vec3 p, in uint index) {{
         vec3 forward = p;
@@ -263,6 +260,34 @@ fn generate_sdf_shader<'a>(shaders: &Shaders) -> String {
         return normalize(vec3(h_x, h_y, h_z));
     }}
 
+    // Returns color, updates ray_origin to final position
+    bool trace_ray(inout vec3 ray_origin, in vec3 ray_vector) {{
+        float radius = 0;
+        float total_traveled = 0;
+
+        vec3 current_point = ray_origin;
+
+        // Perform a few iterations of sphere tracing,
+        // exit if we're too far away
+        for (int k = 0; k < 25; k++) {{
+            radius = sdf(current_point);
+            total_traveled += radius;
+            current_point += ray_vector * radius;
+
+            if (total_traveled > 100.0) {{
+                return false;
+            }}
+        }}
+
+        ray_origin = current_point;
+
+        return true;
+    }}
+
+    {uv_source}
+
+    {surface_source}
+
     void main() {{
         // Compute the ray vector
         vec4 clip_space = vec4(ndc * 2.0 - 1.0, 1.0, 1.0);
@@ -276,24 +301,14 @@ fn generate_sdf_shader<'a>(shaders: &Shaders) -> String {
         float radius = 0;
         float total_traveled = 0;
 
-        // Perform a few iterations of sphere tracing,
-        // exit if we're too far away
-        for (int k = 0; k < 25; k++) {{
-            radius = sdf(current_point);
-            total_traveled += radius;
-            current_point += ray_vec * radius;
-
-            if (total_traveled > 100.0) {{
-                color = vec4(0);
-                return;
-            }}
+        if (trace_ray(current_point, ray_vec)) {{
+            vec2 uv_val = uv(current_point);
+            vec3 normal_sample_pt = current_point - ray_vec * EPS;
+            vec3 normal = sobel_gradient_estimate(normal_sample_pt);
+            color = vec4(surface(origin, current_point, normal, uv_val), 0);
+        }} else {{
+            color = vec4(0.0);
         }}
-
-        // Really simple lighting model
-        vec2 uv_val = uv(current_point);
-        vec3 normal_sample_pt = current_point - ray_vec * EPS * 100.0;
-        vec3 normal = sobel_gradient_estimate(normal_sample_pt);
-        color = vec4(surface(origin, current_point, normal, uv_val), 0);
     }}
 ",
         hg_source = shaders["hg_shader"],
@@ -397,6 +412,7 @@ fn main() {
 
     let mut accumulator = Duration::new(0, 0);
     let mut previous_clock = Instant::now();
+    let start_clock = previous_clock.clone();
 
     // drawing a frame
     loop {
@@ -412,6 +428,8 @@ fn main() {
 
         // Render SDF
         target.clear_color(0.0, 1.0, 0.0, 1.0);
+        let elapsed = ((Instant::now() - start_clock).as_secs() as f32)
+            + ((Instant::now() - start_clock).subsec_micros() as f32 / 1_000_000.0);
         target
             .draw(
                 &vertex_buffer,
@@ -421,10 +439,11 @@ fn main() {
                     inv: to_mat4(inv),
                     origin: to_vec3(origin),
                     near: 0.1 as f32,
+                    time: elapsed,
                 },
                 &Default::default(),
             ).unwrap();
-	target.finish().unwrap();
+        target.finish().unwrap();
 
         // Handle events
         let mut should_exit = false;
