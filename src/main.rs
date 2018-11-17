@@ -269,7 +269,7 @@ fn generate_sdf_shader<'a>(shaders: &Shaders) -> String {
 
         // Perform a few iterations of sphere tracing,
         // exit if we're too far away
-        for (int k = 0; k < 50; k++) {{
+        for (int k = 0; k < 60; k++) {{
             radius = sdf(current_point);
             total_traveled += radius;
             current_point += ray_vector * radius;
