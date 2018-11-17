@@ -224,6 +224,12 @@ fn generate_sdf_shader<'a>(shaders: &Shaders) -> String {
 
     #define EPS 1e-3
 
+    {noise_common}
+
+    {noise2D}
+
+    {noise3D}
+
     {hg_source}
 
     {sdf_source}
@@ -311,6 +317,9 @@ fn generate_sdf_shader<'a>(shaders: &Shaders) -> String {
         }}
     }}
 ",
+        noise_common = shaders["noise_common"],
+        noise2D = shaders["noise2D"],
+        noise3D = shaders["noise3D"],
         hg_source = shaders["hg_shader"],
         sdf_source = shaders["sdf_shader"],
         uv_source = shaders["uv_shader"],
@@ -393,6 +402,18 @@ fn main() {
             .unwrap();
 
     let mut shaders: Shaders = HashMap::new();
+    shaders.insert(
+        "noise_common".to_owned(),
+        fs::read_to_string("sdf/noise_common.glsl").unwrap(),
+    );
+    shaders.insert(
+        "noise2D".to_owned(),
+        fs::read_to_string("sdf/noise2D.glsl").unwrap(),
+    );
+    shaders.insert(
+        "noise3D".to_owned(),
+        fs::read_to_string("sdf/noise3D.glsl").unwrap(),
+    );
     shaders.insert(
         "hg_shader".to_owned(),
         fs::read_to_string("sdf/hg_sdf.glsl").unwrap(),
