@@ -4,7 +4,9 @@ float torus(in vec3 p) {
 }
 
 float sdf(in vec3 p) {
-    pMod3(p, vec3(35.0));
+    // What does this do?
+    //pMod3(p, vec3(35.0));
+
     float shape1 = torus(p);
     float shape2 = length(p - 8.0 * vec3(cos(time), sin(time), 0.0)) - 3.0;
     return min(shape1, shape2);
