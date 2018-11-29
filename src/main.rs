@@ -11,7 +11,7 @@ use glium::glutin::{self, Event, WindowEvent};
 use glium::index::PrimitiveType;
 use glium::Surface;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::fs;
 use std::io::{Read, Write};
 use std::sync::mpsc;
@@ -19,6 +19,9 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 mod camera;
+
+const IDEAL_FRAME_TIME: f64 = 1000.0 / 20.0;
+const FRAME_TIME_BUFFER_SIZE: usize = 10;
 
 const PASSTHROUGH_VS: &'static str = "
 #version 330
@@ -394,7 +397,8 @@ fn main() {
                     tex_coords: [1.0, 0.0],
                 },
             ],
-        ).unwrap()
+        )
+        .unwrap()
     };
 
     let index_buffer =
@@ -435,6 +439,8 @@ fn main() {
     let mut previous_clock = Instant::now();
     let start_clock = previous_clock.clone();
 
+    let mut frame_time_buffer: VecDeque<u64> = VecDeque::new();
+
     // drawing a frame
     loop {
         // Update first person perspective
@@ -463,18 +469,39 @@ fn main() {
                     time: elapsed,
                 },
                 &Default::default(),
-            ).unwrap();
+            )
+            .unwrap();
         target.finish().unwrap();
 
         // Handle events
         let mut should_exit = false;
         events_loop.poll_events(|event| match event {
-            Event::WindowEvent { event, window_id } => if window_id == display.gl_window().id() {
-                match event {
-                    WindowEvent::CloseRequested => should_exit = true,
-                    ev => camera.process_input(&ev),
+            Event::WindowEvent { event, window_id } => {
+                if window_id == display.gl_window().id() {
+                    let gl_window = display.gl_window();
+                    let window = gl_window.window();
+                    match event {
+                        WindowEvent::CloseRequested => should_exit = true,
+                        WindowEvent::Focused(true) => {
+                            window.grab_cursor(true).ok();
+                            window.hide_cursor(true);
+                        }
+
+                        WindowEvent::KeyboardInput {
+                            input:
+                                glutin::KeyboardInput {
+                                    virtual_keycode: Some(glutin::VirtualKeyCode::Escape),
+                                    ..
+                                },
+                            ..
+                        } => {
+                            window.grab_cursor(false).ok();
+                            window.hide_cursor(false);
+                        }
+                        ev => camera.process_input(&ev),
+                    }
                 }
-            },
+            }
             _ => (),
         });
 
@@ -514,6 +541,36 @@ fn main() {
         // VBlank
         let now = Instant::now();
         accumulator += now - previous_clock;
+
+        let current_frame_time = accumulator.subsec_millis() as u64 + accumulator.as_secs() * 1000;
+        frame_time_buffer.push_back(current_frame_time);
+        if frame_time_buffer.len() > FRAME_TIME_BUFFER_SIZE {
+            frame_time_buffer.pop_front();
+        }
+        let frame_time =
+            frame_time_buffer.iter().fold(0, |a, b| a + b) as f64 / frame_time_buffer.len() as f64;
+
+        if frame_time > IDEAL_FRAME_TIME && frame_time_buffer.len() == FRAME_TIME_BUFFER_SIZE {
+            let gl_window = display.gl_window();
+            let window = gl_window.window();
+
+            let overshoot = frame_time - IDEAL_FRAME_TIME;
+            let overshoot_ratio = (1.0 - overshoot as f64 / frame_time as f64).sqrt();
+            let inner_size = window.get_inner_size().unwrap();
+            let new_size = glutin::dpi::LogicalSize::new(
+                inner_size.width * overshoot_ratio,
+                inner_size.height * overshoot_ratio,
+            );
+
+            println!(
+                "Frame took {} milliseconds to render! Overshoot ratio: {}. Reducing resolution to {:?}!",
+                frame_time, overshoot_ratio, new_size
+            );
+
+            window.set_inner_size(new_size);
+            frame_time_buffer.clear();
+        }
+
         previous_clock = now;
 
         let fixed_time_stamp = Duration::new(0, 16666667);
