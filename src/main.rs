@@ -2,6 +2,9 @@ extern crate nalgebra_glm as glm;
 
 extern crate notify;
 
+extern crate termion;
+extern crate tui;
+
 #[macro_use]
 extern crate glium;
 
@@ -11,7 +14,7 @@ use glium::glutin::{self, Event, WindowEvent};
 use glium::index::PrimitiveType;
 use glium::Surface;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::fs;
 use std::io::{Read, Write};
 use std::sync::mpsc;
@@ -19,6 +22,9 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 mod camera;
+
+const IDEAL_FRAME_TIME: f64 = 1000.0 / 30.0;
+const FRAME_TIME_BUFFER_SIZE: usize = 10;
 
 const PASSTHROUGH_VS: &'static str = "
 #version 330
@@ -325,14 +331,11 @@ fn generate_sdf_shader<'a>(shaders: &Shaders) -> String {
     )
 }
 
-fn compile<'a>(display: &glium::Display, fs_shader: &'a str) -> Option<glium::Program> {
-    match glium::Program::from_source(display, PASSTHROUGH_VS, fs_shader, None) {
-        Ok(prog) => Some(prog),
-        Err(err_msg) => {
-            println!("{}", err_msg);
-            None
-        }
-    }
+fn compile<'a>(
+    display: &glium::Display,
+    fs_shader: &'a str,
+) -> Result<glium::Program, glium::ProgramCreationError> {
+    glium::Program::from_source(display, PASSTHROUGH_VS, fs_shader, None)
 }
 
 fn update_shader(
@@ -340,13 +343,25 @@ fn update_shader(
     current_shader_name: &String,
     shaders: &mut Shaders,
     recv_channel: &mpsc::Receiver<String>,
+    app: &mut TerminalApp,
 ) -> Option<glium::Program> {
     match recv_channel.try_recv() {
         Ok(sdf_string) => {
             if sdf_string != shaders[current_shader_name] {
                 shaders.insert(current_shader_name.clone(), sdf_string);
                 preprocess_shaders(shaders);
-                compile(&display, &generate_sdf_shader(shaders))
+                match compile(&display, &generate_sdf_shader(shaders)) {
+                    Ok(program) => {
+                        app.right_pane = "No errors reported".to_owned();
+                        app.alert = (app.alert.0, false);
+                        Some(program)
+                    }
+                    Err(msg) => {
+                        app.right_pane = format!("{}", msg);
+                        app.alert = (app.alert.0, true);
+                        None
+                    }
+                }
             } else {
                 None
             }
@@ -355,11 +370,116 @@ fn update_shader(
     }
 }
 
+struct TerminalApp {
+    left_pane: String,
+    right_pane: String,
+    alert: (bool, bool),
+    size: tui::layout::Rect,
+}
+
+impl Default for TerminalApp {
+    fn default() -> TerminalApp {
+        TerminalApp {
+            left_pane: String::new(),
+            right_pane: String::new(),
+            alert: (false, false),
+            size: tui::layout::Rect::default(),
+        }
+    }
+}
+
+type TermionTerminal = tui::Terminal<
+    tui::backend::TermionBackend<
+        termion::screen::AlternateScreen<
+            termion::input::MouseTerminal<termion::raw::RawTerminal<std::io::Stdout>>,
+        >,
+    >,
+>;
+
+fn terminal_ui_init() -> TermionTerminal {
+    use termion::raw::IntoRawMode;
+
+    let stdout = std::io::stdout().into_raw_mode().unwrap();
+    let stdout = termion::input::MouseTerminal::from(stdout);
+    let stdout = termion::screen::AlternateScreen::from(stdout);
+    let backend = tui::backend::TermionBackend::new(stdout);
+    let mut terminal = tui::Terminal::new(backend).unwrap();
+    terminal.hide_cursor().unwrap();
+
+    terminal
+}
+
+fn terminal_ui_resize(app: &mut TerminalApp, terminal: &mut TermionTerminal) {
+    let size = terminal.size().unwrap();
+    if size != app.size {
+        terminal.resize(size).unwrap();
+        app.size = size;
+    }
+}
+
+fn terminal_ui_draw(app: &mut TerminalApp, terminal: &mut TermionTerminal) {
+    use tui::layout::{Alignment, Constraint, Direction, Layout};
+    use tui::style::{Color, Modifier, Style};
+    use tui::widgets::{Block, Borders, Paragraph, Text, Widget};
+
+    let size = terminal.size().unwrap();
+
+    terminal
+        .draw(|mut f| {
+            tui::widgets::Block::default()
+                .style(tui::style::Style::default().bg(tui::style::Color::DarkGray))
+                .render(&mut f, size);
+            let chunks = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints([Constraint::Percentage(40), Constraint::Percentage(40)].as_ref())
+                .split(size);
+            let left_text = if app.alert.0 {
+                Text::styled(
+                    &app.left_pane,
+                    Style::default().fg(Color::Red).modifier(Modifier::Bold),
+                )
+            } else {
+                Text::styled(&app.left_pane, Style::default().fg(Color::Green))
+            };
+
+            let right_text = if app.alert.1 {
+                Text::styled(
+                    &app.right_pane,
+                    Style::default().fg(Color::Red).modifier(Modifier::Bold),
+                )
+            } else {
+                Text::styled(
+                    &app.right_pane,
+                    Style::default().fg(Color::White).modifier(Modifier::Italic),
+                )
+            };
+
+            let mut left_block = Block::default().borders(Borders::ALL);
+            left_block.render(&mut f, chunks[0]);
+            Paragraph::new(vec![left_text].iter())
+                .block(left_block)
+                .alignment(Alignment::Left)
+                .wrap(true)
+                .render(&mut f, chunks[0]);
+            let mut right_block = Block::default().borders(Borders::ALL);
+            right_block.render(&mut f, chunks[1]);
+            Paragraph::new(vec![right_text].iter())
+                .block(right_block)
+                .alignment(Alignment::Left)
+                .wrap(true)
+                .render(&mut f, chunks[1]);
+        })
+        .unwrap();
+}
+
 fn main() {
     let mut events_loop = glutin::EventsLoop::new();
     let window = glutin::WindowBuilder::new();
     let context = glutin::ContextBuilder::new();
     let display = glium::Display::new(window, context, &events_loop).unwrap();
+
+    let mut term = terminal_ui_init();
+    let mut term_app = TerminalApp::default();
 
     let watchers = init_watchers();
 
@@ -392,7 +512,8 @@ fn main() {
                     tex_coords: [1.0, 0.0],
                 },
             ],
-        ).unwrap()
+        )
+        .unwrap()
     };
 
     let index_buffer =
@@ -433,10 +554,22 @@ fn main() {
     let mut previous_clock = Instant::now();
     let start_clock = previous_clock.clone();
 
+    let mut frame_time_buffer: VecDeque<u64> = VecDeque::new();
+
+    let gl_window = display.gl_window();
+    let window = gl_window.window();
+
+    let mut inner_size = window.get_inner_size().unwrap();
+    let mut physical_inner_size = inner_size.to_physical(window.get_hidpi_factor());
+
+    let mut virtual_resolution = (inner_size.width as u32, inner_size.height as u32);
+
     // drawing a frame
     loop {
         // Update first person perspective
         camera.update();
+        inner_size = window.get_inner_size().unwrap();
+        physical_inner_size = inner_size.to_physical(window.get_hidpi_factor());
 
         let mut target = display.draw();
 
@@ -449,7 +582,19 @@ fn main() {
         target.clear_color(0.0, 1.0, 0.0, 1.0);
         let elapsed = ((Instant::now() - start_clock).as_secs() as f32)
             + ((Instant::now() - start_clock).subsec_micros() as f32 / 1_000_000.0);
-        target
+
+        let display_texture = glium::texture::Texture2d::empty_with_format(
+            &display,
+            glium::texture::UncompressedFloatFormat::U8U8U8U8,
+            glium::texture::MipmapsOption::NoMipmap,
+            virtual_resolution.0,
+            virtual_resolution.1,
+        )
+        .unwrap();
+        let mut framebuffer =
+            glium::framebuffer::SimpleFrameBuffer::new(&display, &display_texture).unwrap();
+
+        framebuffer
             .draw(
                 &vertex_buffer,
                 &index_buffer,
@@ -461,18 +606,53 @@ fn main() {
                     time: elapsed,
                 },
                 &Default::default(),
-            ).unwrap();
+            )
+            .unwrap();
+        target.blit_from_simple_framebuffer(
+            &framebuffer,
+            &glium::Rect {
+                left: 0,
+                bottom: 0,
+                width: virtual_resolution.0,
+                height: virtual_resolution.1,
+            },
+            &glium::BlitTarget {
+                left: 0,
+                bottom: 0,
+                width: physical_inner_size.width as i32,
+                height: physical_inner_size.height as i32,
+            },
+            glium::uniforms::MagnifySamplerFilter::Linear,
+        );
         target.finish().unwrap();
 
         // Handle events
         let mut should_exit = false;
         events_loop.poll_events(|event| match event {
-            Event::WindowEvent { event, window_id } => if window_id == display.gl_window().id() {
-                match event {
-                    WindowEvent::CloseRequested => should_exit = true,
-                    ev => camera.process_input(&ev),
+            Event::WindowEvent { event, window_id } => {
+                if window_id == display.gl_window().id() {
+                    match event {
+                        WindowEvent::CloseRequested => should_exit = true,
+                        WindowEvent::Focused(true) => {
+                            window.grab_cursor(true).ok();
+                            window.hide_cursor(true);
+                        }
+
+                        WindowEvent::KeyboardInput {
+                            input:
+                                glutin::KeyboardInput {
+                                    virtual_keycode: Some(glutin::VirtualKeyCode::Escape),
+                                    ..
+                                },
+                            ..
+                        } => {
+                            window.grab_cursor(false).ok();
+                            window.hide_cursor(false);
+                        }
+                        ev => camera.process_input(&ev),
+                    }
                 }
-            },
+            }
             _ => (),
         });
 
@@ -482,6 +662,7 @@ fn main() {
             &"sdf_shader".to_owned(),
             &mut shaders,
             &watchers.sdf_update,
+            &mut term_app,
         ) {
             program = prog;
         }
@@ -491,6 +672,7 @@ fn main() {
             &"uv_shader".to_owned(),
             &mut shaders,
             &watchers.uv_update,
+            &mut term_app,
         ) {
             program = prog;
         }
@@ -500,9 +682,14 @@ fn main() {
             &"surface_shader".to_owned(),
             &mut shaders,
             &watchers.surface_update,
+            &mut term_app,
         ) {
             program = prog;
         }
+
+        // Handle terminal resize and update
+        terminal_ui_resize(&mut term_app, &mut term);
+        terminal_ui_draw(&mut term_app, &mut term);
 
         // Exit if the user clicks the X
         if should_exit {
@@ -512,6 +699,36 @@ fn main() {
         // VBlank
         let now = Instant::now();
         accumulator += now - previous_clock;
+
+        let current_frame_time = accumulator.subsec_millis() as u64 + accumulator.as_secs() * 1000;
+        frame_time_buffer.push_back(current_frame_time);
+        if frame_time_buffer.len() > FRAME_TIME_BUFFER_SIZE {
+            frame_time_buffer.pop_front();
+        }
+        let frame_time =
+            frame_time_buffer.iter().fold(0, |a, b| a + b) as f64 / frame_time_buffer.len() as f64;
+        if frame_time_buffer.len() == FRAME_TIME_BUFFER_SIZE {
+            let offset: (i32, i32) = if frame_time > IDEAL_FRAME_TIME {
+                (-100, -100)
+            } else {
+                (100, 100)
+            };
+            term_app.alert = (true, term_app.alert.1);
+
+            virtual_resolution.0 = u32::max((virtual_resolution.0 as i32 + offset.0) as u32, 100);
+            virtual_resolution.1 = u32::max((virtual_resolution.1 as i32 + offset.1) as u32, 100);
+            frame_time_buffer.clear();
+        } else {
+            term_app.alert = (false, term_app.alert.1);
+        }
+
+        term_app.left_pane = format!(
+            "FPS: {}\nframe_time: {}\nVRes: {:?}",
+            1000.0 / frame_time,
+            frame_time,
+            virtual_resolution
+        );
+
         previous_clock = now;
 
         let fixed_time_stamp = Duration::new(0, 16666667);
