@@ -23,8 +23,8 @@ use std::time::{Duration, Instant};
 
 mod camera;
 
-const IDEAL_FRAME_TIME: f64 = 1000.0 / 30.0;
-const FRAME_TIME_BUFFER_SIZE: usize = 10;
+const IDEAL_FRAME_TIME: f64 = 1000.0 / 40.0;
+const FRAME_TIME_BUFFER_SIZE: usize = 30;
 
 const PASSTHROUGH_VS: &'static str = "
 #version 330
@@ -622,7 +622,7 @@ fn main() {
                 width: physical_inner_size.width as i32,
                 height: physical_inner_size.height as i32,
             },
-            glium::uniforms::MagnifySamplerFilter::Linear,
+            glium::uniforms::MagnifySamplerFilter::Nearest,
         );
         target.finish().unwrap();
 
