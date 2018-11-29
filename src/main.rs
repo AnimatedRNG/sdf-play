@@ -15,7 +15,6 @@ use glium::index::PrimitiveType;
 use glium::Surface;
 
 use std::collections::{HashMap, VecDeque};
-use std::fmt;
 use std::fs;
 use std::io::{Read, Write};
 use std::sync::mpsc;
@@ -559,10 +558,20 @@ fn main() {
 
     let mut frame_time_buffer: VecDeque<u64> = VecDeque::new();
 
+    let gl_window = display.gl_window();
+    let window = gl_window.window();
+
+    let mut inner_size = window.get_inner_size().unwrap();
+    let mut physical_inner_size = inner_size.to_physical(window.get_hidpi_factor());
+
+    let mut virtual_resolution = (inner_size.width as u32, inner_size.height as u32);
+
     // drawing a frame
     loop {
         // Update first person perspective
         camera.update();
+        inner_size = window.get_inner_size().unwrap();
+        physical_inner_size = inner_size.to_physical(window.get_hidpi_factor());
 
         let mut target = display.draw();
 
@@ -575,7 +584,19 @@ fn main() {
         target.clear_color(0.0, 1.0, 0.0, 1.0);
         let elapsed = ((Instant::now() - start_clock).as_secs() as f32)
             + ((Instant::now() - start_clock).subsec_micros() as f32 / 1_000_000.0);
-        target
+
+        let display_texture = glium::texture::Texture2d::empty_with_format(
+            &display,
+            glium::texture::UncompressedFloatFormat::U8U8U8U8,
+            glium::texture::MipmapsOption::NoMipmap,
+            virtual_resolution.0,
+            virtual_resolution.1,
+        )
+        .unwrap();
+        let mut framebuffer =
+            glium::framebuffer::SimpleFrameBuffer::new(&display, &display_texture).unwrap();
+
+        framebuffer
             .draw(
                 &vertex_buffer,
                 &index_buffer,
@@ -589,6 +610,22 @@ fn main() {
                 &Default::default(),
             )
             .unwrap();
+        target.blit_from_simple_framebuffer(
+            &framebuffer,
+            &glium::Rect {
+                left: 0,
+                bottom: 0,
+                width: virtual_resolution.0,
+                height: virtual_resolution.1,
+            },
+            &glium::BlitTarget {
+                left: 0,
+                bottom: 0,
+                width: physical_inner_size.width as i32,
+                height: physical_inner_size.height as i32,
+            },
+            glium::uniforms::MagnifySamplerFilter::Linear,
+        );
         target.finish().unwrap();
 
         // Handle events
@@ -596,8 +633,6 @@ fn main() {
         events_loop.poll_events(|event| match event {
             Event::WindowEvent { event, window_id } => {
                 if window_id == display.gl_window().id() {
-                    let gl_window = display.gl_window();
-                    let window = gl_window.window();
                     match event {
                         WindowEvent::CloseRequested => should_exit = true,
                         WindowEvent::Focused(true) => {
@@ -674,27 +709,27 @@ fn main() {
         }
         let frame_time =
             frame_time_buffer.iter().fold(0, |a, b| a + b) as f64 / frame_time_buffer.len() as f64;
-
-        if frame_time > IDEAL_FRAME_TIME && frame_time_buffer.len() == FRAME_TIME_BUFFER_SIZE {
-            let gl_window = display.gl_window();
-            let window = gl_window.window();
-
-            let overshoot = frame_time - IDEAL_FRAME_TIME;
-            let overshoot_ratio = (1.0 - overshoot as f64 / frame_time as f64).sqrt();
-            let inner_size = window.get_inner_size().unwrap();
-            let new_size = glutin::dpi::LogicalSize::new(
-                inner_size.width * overshoot_ratio,
-                inner_size.height * overshoot_ratio,
-            );
-
+        if frame_time_buffer.len() == FRAME_TIME_BUFFER_SIZE {
+            let offset: (i32, i32) = if frame_time > IDEAL_FRAME_TIME {
+                (-100, -100)
+            } else {
+                (100, 100)
+            };
             term_app.alert = (true, term_app.alert.1);
 
-            window.set_inner_size(new_size);
+            virtual_resolution.0 = u32::max((virtual_resolution.0 as i32 + offset.0) as u32, 100);
+            virtual_resolution.1 = u32::max((virtual_resolution.1 as i32 + offset.1) as u32, 100);
             frame_time_buffer.clear();
         } else {
             term_app.alert = (false, term_app.alert.1);
         }
-        term_app.left_pane = format!("FPS: {}", 1000.0 / frame_time);
+
+        term_app.left_pane = format!(
+            "FPS: {}\nframe_time: {}\nVRes: {:?}",
+            1000.0 / frame_time,
+            frame_time,
+            virtual_resolution
+        );
 
         previous_clock = now;
 
