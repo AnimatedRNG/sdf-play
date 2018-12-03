@@ -707,9 +707,7 @@ fn main() {
                             grabbed = false;
                         }
                         ev => {
-                            if grabbed {
-                                camera.process_input(&ev, current_frame_time as u64);
-                            }
+                            camera.process_input(&ev, current_frame_time as u64, grabbed);
                         }
                     }
                 }

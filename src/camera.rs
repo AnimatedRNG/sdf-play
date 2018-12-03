@@ -190,7 +190,7 @@ impl CameraState {
         );
     }
 
-    pub fn process_input(&mut self, event: &glutin::WindowEvent, dt: u64) {
+    pub fn process_input(&mut self, event: &glutin::WindowEvent, dt: u64, handle_camera: bool) {
         match *event {
             glutin::WindowEvent::KeyboardInput { input, .. } => {
                 let pressed = input.state == glutin::ElementState::Pressed;
@@ -221,16 +221,18 @@ impl CameraState {
                 };
             }
             glutin::WindowEvent::CursorMoved { position, .. } => {
-                let new_pos = glm::vec2(position.x as f32, position.y as f32);
-                let diff = match self.cursor_pos {
-                    None => glm::vec2(0.0, 0.0),
-                    Some(old_pos) => new_pos - old_pos,
-                };
+                if handle_camera {
+                    let new_pos = glm::vec2(position.x as f32, position.y as f32);
+                    let diff = match self.cursor_pos {
+                        None => glm::vec2(0.0, 0.0),
+                        Some(old_pos) => new_pos - old_pos,
+                    };
 
-                let diff = diff * (MOUSE_SPEED * dt as f32);
-                self.update_camera_rotation(&diff);
+                    let diff = diff * (MOUSE_SPEED * dt as f32);
+                    self.update_camera_rotation(&diff);
 
-                self.cursor_pos = Some(new_pos);
+                    self.cursor_pos = Some(new_pos);
+                }
             }
             _ => return,
         }
