@@ -23,7 +23,6 @@ use std::time::{Duration, Instant};
 
 mod camera;
 
-const IDEAL_FRAME_TIME: f64 = 1000.0 / 10.0;
 const FRAME_TIME_BUFFER_SIZE: usize = 30;
 
 const PASSTHROUGH_VS: &'static str = "
@@ -559,10 +558,11 @@ fn main() {
     let gl_window = display.gl_window();
     let window = gl_window.window();
 
-    let mut inner_size = window.get_inner_size().unwrap();
-    let mut physical_inner_size = inner_size.to_physical(window.get_hidpi_factor());
+    let mut inner_size;
+    let mut physical_inner_size;
 
-    let mut virtual_resolution = (inner_size.width as u32, inner_size.height as u32);
+    //let mut virtual_resolution = (inner_size.width as u32, inner_size.height as u32);
+    let mut virtual_resolution = (500, 500);
     let mut grabbed: bool = false;
 
     // drawing a frame
@@ -639,23 +639,8 @@ fn main() {
         let frame_time =
             frame_time_buffer.iter().fold(0, |a, b| a + b) as f64 / frame_time_buffer.len() as f64;
         if frame_time_buffer.len() == FRAME_TIME_BUFFER_SIZE {
-            let offset: (i32, i32) = if frame_time > IDEAL_FRAME_TIME {
-                (-100, -100)
-            } else {
-                (100, 100)
-            };
             term_app.alert = (true, term_app.alert.1);
 
-            /*virtual_resolution.0 = u32::min(
-                    u32::max((virtual_resolution.0 as i32 + offset.0) as u32, 100),
-                    inner_size.width as u32,
-                );
-                virtual_resolution.1 = u32::min(
-                    u32::max((virtual_resolution.1 as i32 + offset.1) as u32, 100),
-                    inner_size.height as u32,
-            );*/
-            virtual_resolution.0 = 500;
-            virtual_resolution.1 = 500;
             frame_time_buffer.clear();
         } else {
             term_app.alert = (false, term_app.alert.1);
@@ -704,6 +689,30 @@ fn main() {
                             window.hide_cursor(false);
                             grabbed = false;
                             camera.reset_camera();
+                        }
+                        WindowEvent::KeyboardInput {
+                            input:
+                                glutin::KeyboardInput {
+                                    virtual_keycode: Some(glutin::VirtualKeyCode::Comma),
+                                    ..
+                                },
+                            ..
+                        } => {
+                            virtual_resolution.0 = u32::max(virtual_resolution.0 - 100, 100);
+                            virtual_resolution.1 = u32::max(virtual_resolution.1 - 100, 100);
+                        }
+                        WindowEvent::KeyboardInput {
+                            input:
+                                glutin::KeyboardInput {
+                                    virtual_keycode: Some(glutin::VirtualKeyCode::Period),
+                                    ..
+                                },
+                            ..
+                        } => {
+                            virtual_resolution.0 =
+                                u32::min(virtual_resolution.0 + 100, inner_size.width as u32);
+                            virtual_resolution.1 =
+                                u32::min(virtual_resolution.1 + 100, inner_size.height as u32);
                         }
                         ev => {
                             camera.process_input(&ev, current_frame_time as u64, grabbed);
