@@ -565,6 +565,7 @@ fn main() {
     let mut physical_inner_size = inner_size.to_physical(window.get_hidpi_factor());
 
     let mut virtual_resolution = (inner_size.width as u32, inner_size.height as u32);
+    let mut paused: bool = false;
 
     // drawing a frame
     loop {
@@ -690,6 +691,7 @@ fn main() {
                         WindowEvent::Focused(true) => {
                             window.grab_cursor(true).ok();
                             window.hide_cursor(true);
+                            paused = false;
                         }
 
                         WindowEvent::KeyboardInput {
@@ -702,8 +704,13 @@ fn main() {
                         } => {
                             window.grab_cursor(false).ok();
                             window.hide_cursor(false);
+                            paused = true;
                         }
-                        ev => camera.process_input(&ev, current_frame_time as u64),
+                        ev => {
+                            if !paused {
+                                camera.process_input(&ev, current_frame_time as u64);
+                            }
+                        }
                     }
                 }
             }
