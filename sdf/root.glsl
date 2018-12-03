@@ -22,10 +22,10 @@ float column(in vec3 p, in float radius, in float height, float baseoffset, floa
         cylinder = fOpDifferenceRound(cylinder, ridges, 0.01);
     }
     float base1 = fCylinder(p-vec3(0,height,0), radius+baseoffset, baseheight);
-    float basebox1 = fBox(p-vec3(0,height+2*baseheight,0), vec3(radius+baseoffset,baseheight, radius+baseoffset+0.1));
+    float basebox1 = fBox(p-vec3(0,height+2*baseheight,0), vec3(radius+baseoffset+0.1,baseheight, radius+baseoffset+0.1));
     base1 = fOpUnionColumns(base1, basebox1, 0.1, 3);
     float base2 = fCylinder(p+vec3(0,height,0), radius+baseoffset, baseheight);
-    float basebox2 = fBox(p+vec3(0,height+2*baseheight,0), vec3(radius+baseoffset,baseheight, radius+baseoffset+0.1));
+    float basebox2 = fBox(p+vec3(0,height+2*baseheight,0), vec3(radius+baseoffset+0.1,baseheight, radius+baseoffset+0.1));
     base2 = fOpUnionColumns(base2, basebox2, 0.1, 3);
     float bases = min(base1, base2);
     return min(cylinder,bases);
