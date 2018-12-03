@@ -23,7 +23,7 @@ use std::time::{Duration, Instant};
 
 mod camera;
 
-const IDEAL_FRAME_TIME: f64 = 1000.0 / 40.0;
+const IDEAL_FRAME_TIME: f64 = 1000.0 / 10.0;
 const FRAME_TIME_BUFFER_SIZE: usize = 30;
 
 const PASSTHROUGH_VS: &'static str = "
@@ -626,6 +626,58 @@ fn main() {
         );
         target.finish().unwrap();
 
+        // VBlank
+        let now = Instant::now();
+        accumulator += now - previous_clock;
+
+        let current_frame_time = accumulator.subsec_millis() as u64 + accumulator.as_secs() * 1000;
+        frame_time_buffer.push_back(current_frame_time);
+        if frame_time_buffer.len() > FRAME_TIME_BUFFER_SIZE {
+            frame_time_buffer.pop_front();
+        }
+        let frame_time =
+            frame_time_buffer.iter().fold(0, |a, b| a + b) as f64 / frame_time_buffer.len() as f64;
+        if frame_time_buffer.len() == FRAME_TIME_BUFFER_SIZE {
+            let offset: (i32, i32) = if frame_time > IDEAL_FRAME_TIME {
+                (-100, -100)
+            } else {
+                (100, 100)
+            };
+            term_app.alert = (true, term_app.alert.1);
+
+            /*virtual_resolution.0 = u32::min(
+                    u32::max((virtual_resolution.0 as i32 + offset.0) as u32, 100),
+                    inner_size.width as u32,
+                );
+                virtual_resolution.1 = u32::min(
+                    u32::max((virtual_resolution.1 as i32 + offset.1) as u32, 100),
+                    inner_size.height as u32,
+            );*/
+            virtual_resolution.0 = 500;
+            virtual_resolution.1 = 500;
+            frame_time_buffer.clear();
+        } else {
+            term_app.alert = (false, term_app.alert.1);
+        }
+
+        term_app.left_pane = format!(
+            "FPS: {}\nframe_time: {}\nVRes: {:?}",
+            1000.0 / frame_time,
+            frame_time,
+            virtual_resolution
+        );
+
+        previous_clock = now;
+
+        let fixed_time_stamp = Duration::new(0, 16666667);
+        while accumulator >= fixed_time_stamp {
+            accumulator -= fixed_time_stamp;
+        }
+
+        // Handle terminal resize and update
+        terminal_ui_resize(&mut term_app, &mut term);
+        terminal_ui_draw(&mut term_app, &mut term);
+
         // Handle events
         let mut should_exit = false;
         events_loop.poll_events(|event| match event {
@@ -649,7 +701,7 @@ fn main() {
                             window.grab_cursor(false).ok();
                             window.hide_cursor(false);
                         }
-                        ev => camera.process_input(&ev),
+                        ev => camera.process_input(&ev, current_frame_time as u64),
                     }
                 }
             }
@@ -687,53 +739,9 @@ fn main() {
             program = prog;
         }
 
-        // Handle terminal resize and update
-        terminal_ui_resize(&mut term_app, &mut term);
-        terminal_ui_draw(&mut term_app, &mut term);
-
         // Exit if the user clicks the X
         if should_exit {
             return;
-        }
-
-        // VBlank
-        let now = Instant::now();
-        accumulator += now - previous_clock;
-
-        let current_frame_time = accumulator.subsec_millis() as u64 + accumulator.as_secs() * 1000;
-        frame_time_buffer.push_back(current_frame_time);
-        if frame_time_buffer.len() > FRAME_TIME_BUFFER_SIZE {
-            frame_time_buffer.pop_front();
-        }
-        let frame_time =
-            frame_time_buffer.iter().fold(0, |a, b| a + b) as f64 / frame_time_buffer.len() as f64;
-        if frame_time_buffer.len() == FRAME_TIME_BUFFER_SIZE {
-            let offset: (i32, i32) = if frame_time > IDEAL_FRAME_TIME {
-                (-100, -100)
-            } else {
-                (100, 100)
-            };
-            term_app.alert = (true, term_app.alert.1);
-
-            virtual_resolution.0 = u32::max((virtual_resolution.0 as i32 + offset.0) as u32, 100);
-            virtual_resolution.1 = u32::max((virtual_resolution.1 as i32 + offset.1) as u32, 100);
-            frame_time_buffer.clear();
-        } else {
-            term_app.alert = (false, term_app.alert.1);
-        }
-
-        term_app.left_pane = format!(
-            "FPS: {}\nframe_time: {}\nVRes: {:?}",
-            1000.0 / frame_time,
-            frame_time,
-            virtual_resolution
-        );
-
-        previous_clock = now;
-
-        let fixed_time_stamp = Duration::new(0, 16666667);
-        while accumulator >= fixed_time_stamp {
-            accumulator -= fixed_time_stamp;
         }
     }
 }
