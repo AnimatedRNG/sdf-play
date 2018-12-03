@@ -563,7 +563,7 @@ fn main() {
     let mut physical_inner_size = inner_size.to_physical(window.get_hidpi_factor());
 
     let mut virtual_resolution = (inner_size.width as u32, inner_size.height as u32);
-    let mut paused: bool = false;
+    let mut grabbed: bool = false;
 
     // drawing a frame
     loop {
@@ -686,26 +686,26 @@ fn main() {
                 if window_id == display.gl_window().id() {
                     match event {
                         WindowEvent::CloseRequested => should_exit = true,
-                        WindowEvent::Focused(true) => {
+                        WindowEvent::MouseInput {
+                            button: glutin::MouseButton::Left,
+                            state: glutin::ElementState::Pressed,
+                            ..
+                        } => {
                             window.grab_cursor(true).ok();
                             window.hide_cursor(true);
-                            paused = false;
+                            grabbed = true;
                         }
-
-                        WindowEvent::KeyboardInput {
-                            input:
-                                glutin::KeyboardInput {
-                                    virtual_keycode: Some(glutin::VirtualKeyCode::Escape),
-                                    ..
-                                },
+                        WindowEvent::MouseInput {
+                            button: glutin::MouseButton::Left,
+                            state: glutin::ElementState::Released,
                             ..
                         } => {
                             window.grab_cursor(false).ok();
                             window.hide_cursor(false);
-                            paused = true;
+                            grabbed = false;
                         }
                         ev => {
-                            if !paused {
+                            if grabbed {
                                 camera.process_input(&ev, current_frame_time as u64);
                             }
                         }
