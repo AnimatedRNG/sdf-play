@@ -190,6 +190,10 @@ impl CameraState {
         );
     }
 
+    pub fn reset_camera(&mut self) {
+        self.cursor_pos = None;
+    }
+
     pub fn process_input(&mut self, event: &glutin::WindowEvent, dt: u64, handle_camera: bool) {
         match *event {
             glutin::WindowEvent::KeyboardInput { input, .. } => {

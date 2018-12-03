@@ -705,6 +705,7 @@ fn main() {
                             window.grab_cursor(false).ok();
                             window.hide_cursor(false);
                             grabbed = false;
+                            camera.reset_camera();
                         }
                         ev => {
                             camera.process_input(&ev, current_frame_time as u64, grabbed);
