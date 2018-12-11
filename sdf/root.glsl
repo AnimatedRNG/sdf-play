@@ -66,14 +66,8 @@ float window(in vec3 p, in float wall, in float width, in float height, in float
     return indent;//fOpDifferenceStairs(wall,indent,max(depth*0.3*cos(0.1*time),0.1),3);
 }
 
-float subtractblock(in vec3 p){
-    float width = 8;
-    float height = 15;
-    float length = 8;
+float subtractblock(in vec3 p, in float width, in float height, in float length, float windowwidth, float windowheight, float windowdepth){
     float block = fBox(p, vec3(width, height, length));
-    float windowwidth = 2;
-    float windowheight = 3;
-    float windowdepth = 0.5;
     bool arc = true;
     int heightdivisions = 6;
     int widthdivisions = 3;
@@ -93,6 +87,23 @@ float subtractblock(in vec3 p){
     //return max(windows, block);
     float subblock = fBox(p, vec3(width-windowdepth, height, length-windowdepth));
     return min(max(windows, block),subblock);
+}
+
+float subtractcolumnblock(in vec3 p, in float width, in float height, in float length){
+    float columns = 1e10;
+    for (int i=0; i<4; i++){
+        pR(p.xz, 3.1414/2);
+        vec3 prepeat = p+vec3(width/2,0,length/2);
+
+        pMod2(prepeat.xy, vec2(5,height*2));
+
+        columns = min(columns,column(prepeat,1,height,0.2,0.3,0.05,20));
+    }
+            pR(p.xz, 3.1414/2);
+            //return columns;
+    columns = max(columns, fBox(p,vec3(width,height,length)));
+    //return columns;
+    return max(fBox(p, vec3(width, height, length)),-columns);
 }
 
 float sdf(in vec3 p) {
@@ -122,5 +133,12 @@ float sdf(in vec3 p) {
     //return windowobj;
     //return wall;
     //return subtractblock(p-vec3(0,0,5));
-    return max(fBox(p,vec3(10,20,5)),-subtractblock(p-vec3(0,0,5)));
+    float building = fBox(p,vec3(20,23,5));
+    //building = max(building,-subtractblock(p-vec3(13,5.5,5),8,18,8,1,1.5,0.5));
+
+    //building = max(building, -subtractblock(p-vec3(-18,5.5,5),8,12.5,8,2,3,0.5));
+    //building = max(building, -subtractblock(p-vec3(0,-2,12),20,20,8,2,1,0.5));
+    //return building;
+    //return subtractcolumnblock(p, 20, 10, 20);
+    return max(building,-subtractcolumnblock(p, 15, 10, 15));
 }
