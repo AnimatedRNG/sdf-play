@@ -73,13 +73,13 @@ float subtractblock(in vec3 p, in float width, in float height, in float length,
     int widthdivisions = 3;
 
     float dividerthickness = 0.05;
-    float betweenwidth = 0.5;
+    float betweenwidth = width;
     float windows = 1e10;
     for (int i=0; i<4; i++){
         pR(p.xz, i*3.1414/2);
         vec3 prepeat = p+vec3(0,+float(arc)*windowwidth/2,+length-windowdepth);
 
-        pMod2(prepeat.xy, vec2(windowwidth*2+2*betweenwidth, (windowheight+windowwidth*float(arc))*2));
+        pMod2(prepeat.xy, vec2(windowwidth*3, (windowheight+windowwidth*float(arc))*2));
         windows = min(windows, window(prepeat, block, windowwidth, windowheight, windowdepth,
                                arc, widthdivisions, heightdivisions, dividerthickness));
 
@@ -107,7 +107,7 @@ float subtractcolumnblock(in vec3 p, in float width, in float height, in float l
 }
 
 float sdf(in vec3 p) {
-     p = p + vec3(2,0,10);
+     p = p + vec3(2,-3,15);
     // What does this do?
     //pMod3(p, vec3(35.0));
     float radius = max(cos(time),0.5);//0.5;
@@ -133,12 +133,26 @@ float sdf(in vec3 p) {
     //return windowobj;
     //return wall;
     //return subtractblock(p-vec3(0,0,5));
-    float building = fBox(p,vec3(20,23,5));
+    float building = fBox(p,vec3(30,16,5));
     //building = max(building,-subtractblock(p-vec3(13,5.5,5),8,18,8,1,1.5,0.5));
 
     //building = max(building, -subtractblock(p-vec3(-18,5.5,5),8,12.5,8,2,3,0.5));
     //building = max(building, -subtractblock(p-vec3(0,-2,12),20,20,8,2,1,0.5));
     //return building;
     //return subtractcolumnblock(p, 20, 10, 20);
-    return max(building,-subtractcolumnblock(p, 15, 10, 15));
+    building =  max(building,-subtractcolumnblock(p, 15, 8, 15));
+    building = max(building, -subtractblock(p-vec3(0,-2,12),20,20,8,2,2,0.5));
+
+    //return building;
+    float simmons = fBox(p-vec3(0,0,3), vec3(20,7,4));
+    simmons = max(simmons, -fBox(p-vec3(-8.5,5,0), vec3(4,3,8)));
+    simmons = max(simmons, -fBox(p-vec3(8,4.5,0), vec3(2,2.6,8)));
+    simmons = max(simmons, -fBox(p-vec3(-18.5,-0.5,8), vec3(1.6,1.6,2.5)));
+    simmons = max(simmons, -fBox(p-vec3(6,-4.5,0), vec3(2,2.6,8)));
+    simmons = max(simmons, -fBox(p-vec3(18.5,1,8), vec3(4,1.5,2.01)));
+    simmons = max(simmons, -fBox(p-vec3(-10.5,-6,8.7), vec3(4,3,2.01)));
+    simmons = max(simmons, -fBox(p-vec3(-1.5,-7,8.7), vec3(3,2,2.01)));
+    simmons = max(simmons, -fBox(p-vec3(-1.5,3,8), vec3(1.5,2,2.01)));
+    simmons = max(simmons, -subtractblock(p-vec3(0,0,8.7),20,7,2,0.13,0.13,0.4));
+    return simmons;
 }
