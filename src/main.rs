@@ -5,6 +5,8 @@ extern crate notify;
 extern crate termion;
 extern crate tui;
 
+extern crate chrono;
+
 #[macro_use]
 extern crate glium;
 
@@ -14,6 +16,7 @@ use glium::glutin::{self, Event, WindowEvent};
 use glium::index::PrimitiveType;
 use glium::Surface;
 
+use chrono::{TimeZone, Utc};
 use std::collections::{HashMap, VecDeque};
 use std::fs;
 use std::io::{Read, Write};
@@ -22,6 +25,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 mod camera;
+mod export;
 
 const FRAME_TIME_BUFFER_SIZE: usize = 30;
 
@@ -353,7 +357,9 @@ fn update_shader(
                 preprocess_shaders(shaders);
                 match compile(&display, &generate_sdf_shader(shaders)) {
                     Ok(program) => {
-                        app.right_pane = "No errors reported".to_owned();
+                        if app.anchors == (None, None) {
+                            app.right_pane = "No errors reported".to_owned();
+                        }
                         app.alert = (app.alert.0, false);
                         Some(program)
                     }
@@ -376,6 +382,7 @@ struct TerminalApp {
     right_pane: String,
     alert: (bool, bool),
     size: tui::layout::Rect,
+    anchors: (Option<glm::Vec3>, Option<glm::Vec3>),
 }
 
 impl Default for TerminalApp {
@@ -385,6 +392,7 @@ impl Default for TerminalApp {
             right_pane: String::new(),
             alert: (false, false),
             size: tui::layout::Rect::default(),
+            anchors: (None, None),
         }
     }
 }
@@ -692,6 +700,67 @@ fn main() {
                             grabbed = false;
                             camera.reset_camera();
                         }
+                        WindowEvent::KeyboardInput {
+                            input:
+                                glutin::KeyboardInput {
+                                    virtual_keycode: Some(glutin::VirtualKeyCode::Space),
+                                    state: glutin::ElementState::Released,
+                                    ..
+                                },
+                            ..
+                        } => {
+                            let pos = camera.get_position();
+                            let (anchors, repr) = match term_app.anchors {
+                                (None, None) | (Some(_), Some(_)) => {
+                                    ((Some(pos), None), Some(format!("Anchor 1: {})", pos)))
+                                }
+                                (Some(first_anchor), None) => (
+                                    (Some(first_anchor), Some(pos)),
+                                    Some(format!("Anchor 1: {}\nAnchor 2: {}", first_anchor, pos)),
+                                ),
+                                // Shouldn't happen?
+                                _ => ((Some(pos), None), None),
+                            };
+                            term_app.anchors = anchors;
+
+                            match repr {
+                                Some(repr) => term_app.right_pane = repr,
+                                None => {}
+                            };
+                        }
+                        WindowEvent::KeyboardInput {
+                            input:
+                                glutin::KeyboardInput {
+                                    virtual_keycode: Some(glutin::VirtualKeyCode::Return),
+                                    state: glutin::ElementState::Released,
+                                    ..
+                                },
+                            ..
+                        } => match term_app.anchors.clone() {
+                            (Some(a1), Some(a2)) => {
+                                let grid_sdf = export::grid_sdf_async_compute(
+                                    &display,
+                                    &shaders["sdf_shader"],
+                                    elapsed,
+                                    (a1, a2),
+                                );
+
+                                let timestamp = Utc::now().timestamp();
+                                let filename = format!("grid_sdf_{}.sdf", timestamp);
+                                export::grid_sdf_write(&filename, &grid_sdf);
+
+                                term_app.anchors = (None, None);
+
+                                term_app.right_pane =
+                                    format!("Saved grid SDF to file {}", filename);
+                                term_app.alert.1 = false;
+                            }
+                            _ => {
+                                term_app.right_pane =
+                                    "Need both anchors set to compute grid SDF".to_owned();
+                                term_app.alert.1 = true;
+                            }
+                        },
                         WindowEvent::KeyboardInput {
                             input:
                                 glutin::KeyboardInput {
