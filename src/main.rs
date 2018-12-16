@@ -225,6 +225,8 @@ fn generate_sdf_shader<'a>(shaders: &Shaders) -> String {
     uniform mat4 inv;
     uniform vec3 origin;
     uniform float time;
+    uniform float visualization_depth;
+    uniform bool enable_visualization;
 
     uniform float near;
 
@@ -303,6 +305,21 @@ fn generate_sdf_shader<'a>(shaders: &Shaders) -> String {
 
     {surface_source}
 
+    float visualize_sdf(in vec3 ray_origin, in vec3 ray_vec) {{
+        float accum = 0.0;
+        int num_steps = 30;
+        vec3 current_point = ray_origin;
+
+        for (int i = 0; i < num_steps; i++) {{
+            float radius = sdf(current_point);
+            current_point += ray_vec * visualization_depth;
+            accum += radius;
+        }}
+
+        accum = clamp(accum, 0.0, float(num_steps) * 100.0);
+        return mod(accum / (float(num_steps) * 100.0), 1.0);
+    }}
+
     void main() {{
         // Compute the ray vector
         vec4 clip_space = vec4(ndc * 2.0 - 1.0, 1.0, 1.0);
@@ -316,13 +333,17 @@ fn generate_sdf_shader<'a>(shaders: &Shaders) -> String {
         float radius = 0;
         float total_traveled = 0;
 
-        if (trace_ray(current_point, ray_vec)) {{
-            vec2 uv_val = uv(current_point);
-            vec3 normal_sample_pt = current_point - ray_vec * EPS;
-            vec3 normal = sobel_gradient_estimate(normal_sample_pt);
-            color = vec4(surface(origin, current_point, normal, uv_val), 0);
+        if (enable_visualization) {{
+            color = vec4(visualize_sdf(current_point, ray_vec));
         }} else {{
-            color = vec4(0.0);
+            if (trace_ray(current_point, ray_vec)) {{
+                vec2 uv_val = uv(current_point);
+                vec3 normal_sample_pt = current_point - ray_vec * EPS;
+                vec3 normal = sobel_gradient_estimate(normal_sample_pt);
+                color = vec4(surface(origin, current_point, normal, uv_val), 0);
+            }} else {{
+                color = vec4(0.0);
+            }}
         }}
     }}
 ",
@@ -487,9 +508,6 @@ fn main() {
     let context = glutin::ContextBuilder::new();
     let display = glium::Display::new(window, context, &events_loop).unwrap();
 
-    let mut term = terminal_ui_init();
-    let mut term_app = TerminalApp::default();
-
     let watchers = init_watchers();
 
     let vertex_buffer = {
@@ -555,6 +573,9 @@ fn main() {
 
     let mut program = compile(&display, &generate_sdf_shader(&shaders)).unwrap();
 
+    let mut term = terminal_ui_init();
+    let mut term_app = TerminalApp::default();
+
     let mut camera = camera::CameraState::new();
     camera.set_position((0.0, 0.0, 10.0));
     camera.set_direction((0.0, 0.0, -1.0));
@@ -574,6 +595,8 @@ fn main() {
     //let mut virtual_resolution = (inner_size.width as u32, inner_size.height as u32);
     let mut virtual_resolution = (500, 500);
     let mut grabbed: bool = false;
+    let mut visualization_depth: f32 = 0.2;
+    let mut enable_visualization: bool = false;
 
     // drawing a frame
     loop {
@@ -615,6 +638,8 @@ fn main() {
                     origin: to_vec3(origin),
                     near: 0.1 as f32,
                     time: elapsed,
+                    visualization_depth: visualization_depth,
+                    enable_visualization: enable_visualization,
                 },
                 &Default::default(),
             )
@@ -784,6 +809,37 @@ fn main() {
                                 u32::min(virtual_resolution.0 + 100, inner_size.width as u32);
                             virtual_resolution.1 =
                                 u32::min(virtual_resolution.1 + 100, inner_size.height as u32);
+                        }
+                        WindowEvent::KeyboardInput {
+                            input:
+                                glutin::KeyboardInput {
+                                    virtual_keycode: Some(glutin::VirtualKeyCode::V),
+                                    state: glutin::ElementState::Released,
+                                    ..
+                                },
+                            ..
+                        } => {
+                            enable_visualization = !enable_visualization;
+                        }
+                        WindowEvent::KeyboardInput {
+                            input:
+                                glutin::KeyboardInput {
+                                    virtual_keycode: Some(glutin::VirtualKeyCode::LBracket),
+                                    ..
+                                },
+                            ..
+                        } => {
+                            visualization_depth -= 0.03;
+                        }
+                        WindowEvent::KeyboardInput {
+                            input:
+                                glutin::KeyboardInput {
+                                    virtual_keycode: Some(glutin::VirtualKeyCode::RBracket),
+                                    ..
+                                },
+                            ..
+                        } => {
+                            visualization_depth += 0.03;
                         }
                         ev => {
                             camera.process_input(&ev, current_frame_time as u64, grabbed);
