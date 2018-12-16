@@ -1,3 +1,4 @@
+extern crate nalgebra_glm as glm;
 extern crate byteorder;
 extern crate glium;
 
