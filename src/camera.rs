@@ -3,8 +3,8 @@ extern crate nalgebra_glm as glm;
 
 use glium::glutin;
 
-const MOUSE_SPEED: f32 = 0.04;
-const MOVE_SPEED: f32 = 0.01;
+const MOUSE_SPEED: f32 = 0.0004;
+const MOVE_SPEED: f32 = 0.05;
 
 
 pub struct CameraState {
