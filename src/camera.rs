@@ -75,6 +75,10 @@ impl CameraState {
         .transpose()
     }
 
+    pub fn get_position(&self) -> glm::Vec3 {
+        self.position
+    }
+
     pub fn get_view(&self) -> glm::Mat4 {
         let f = {
             let f = self.direction;

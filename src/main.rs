@@ -5,6 +5,8 @@ extern crate notify;
 extern crate termion;
 extern crate tui;
 
+extern crate chrono;
+
 #[macro_use]
 extern crate glium;
 
@@ -14,6 +16,7 @@ use glium::glutin::{self, Event, WindowEvent};
 use glium::index::PrimitiveType;
 use glium::Surface;
 
+use chrono::{TimeZone, Utc};
 use std::collections::{HashMap, VecDeque};
 use std::fs;
 use std::io::{Read, Write};
@@ -22,6 +25,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 mod camera;
+mod export;
 
 const FRAME_TIME_BUFFER_SIZE: usize = 30;
 
@@ -221,6 +225,8 @@ fn generate_sdf_shader<'a>(shaders: &Shaders) -> String {
     uniform mat4 inv;
     uniform vec3 origin;
     uniform float time;
+    uniform float visualization_depth;
+    uniform bool enable_visualization;
 
     uniform float near;
 
@@ -299,6 +305,21 @@ fn generate_sdf_shader<'a>(shaders: &Shaders) -> String {
 
     {surface_source}
 
+    float visualize_sdf(in vec3 ray_origin, in vec3 ray_vec) {{
+        float accum = 0.0;
+        int num_steps = 30;
+        vec3 current_point = ray_origin;
+
+        for (int i = 0; i < num_steps; i++) {{
+            float radius = sdf(current_point);
+            current_point += ray_vec * visualization_depth;
+            accum += radius;
+        }}
+
+        accum = clamp(accum, 0.0, float(num_steps) * 100.0);
+        return mod(accum / (float(num_steps) * 100.0), 1.0);
+    }}
+
     void main() {{
         // Compute the ray vector
         vec4 clip_space = vec4(ndc * 2.0 - 1.0, 1.0, 1.0);
@@ -312,13 +333,17 @@ fn generate_sdf_shader<'a>(shaders: &Shaders) -> String {
         float radius = 0;
         float total_traveled = 0;
 
-        if (trace_ray(current_point, ray_vec)) {{
-            vec2 uv_val = uv(current_point);
-            vec3 normal_sample_pt = current_point - ray_vec * EPS;
-            vec3 normal = sobel_gradient_estimate(normal_sample_pt);
-            color = vec4(surface(origin, current_point, normal, uv_val), 0);
+        if (enable_visualization) {{
+            color = vec4(visualize_sdf(current_point, ray_vec));
         }} else {{
-            color = vec4(0.0);
+            if (trace_ray(current_point, ray_vec)) {{
+                vec2 uv_val = uv(current_point);
+                vec3 normal_sample_pt = current_point - ray_vec * EPS;
+                vec3 normal = sobel_gradient_estimate(normal_sample_pt);
+                color = vec4(surface(origin, current_point, normal, uv_val), 0);
+            }} else {{
+                color = vec4(0.0);
+            }}
         }}
     }}
 ",
@@ -353,7 +378,9 @@ fn update_shader(
                 preprocess_shaders(shaders);
                 match compile(&display, &generate_sdf_shader(shaders)) {
                     Ok(program) => {
-                        app.right_pane = "No errors reported".to_owned();
+                        if app.anchors == (None, None) {
+                            app.right_pane = "No errors reported".to_owned();
+                        }
                         app.alert = (app.alert.0, false);
                         Some(program)
                     }
@@ -376,6 +403,7 @@ struct TerminalApp {
     right_pane: String,
     alert: (bool, bool),
     size: tui::layout::Rect,
+    anchors: (Option<glm::Vec3>, Option<glm::Vec3>),
 }
 
 impl Default for TerminalApp {
@@ -385,6 +413,7 @@ impl Default for TerminalApp {
             right_pane: String::new(),
             alert: (false, false),
             size: tui::layout::Rect::default(),
+            anchors: (None, None),
         }
     }
 }
@@ -479,9 +508,6 @@ fn main() {
     let context = glutin::ContextBuilder::new();
     let display = glium::Display::new(window, context, &events_loop).unwrap();
 
-    let mut term = terminal_ui_init();
-    let mut term_app = TerminalApp::default();
-
     let watchers = init_watchers();
 
     let vertex_buffer = {
@@ -547,6 +573,9 @@ fn main() {
 
     let mut program = compile(&display, &generate_sdf_shader(&shaders)).unwrap();
 
+    let mut term = terminal_ui_init();
+    let mut term_app = TerminalApp::default();
+
     let mut camera = camera::CameraState::new();
     camera.set_position((0.0, 0.0, 10.0));
     camera.set_direction((0.0, 0.0, -1.0));
@@ -566,6 +595,8 @@ fn main() {
     //let mut virtual_resolution = (inner_size.width as u32, inner_size.height as u32);
     let mut virtual_resolution = (500, 500);
     let mut grabbed: bool = false;
+    let mut visualization_depth: f32 = 0.2;
+    let mut enable_visualization: bool = false;
 
     // drawing a frame
     loop {
@@ -607,6 +638,8 @@ fn main() {
                     origin: to_vec3(origin),
                     near: 0.1 as f32,
                     time: elapsed,
+                    visualization_depth: visualization_depth,
+                    enable_visualization: enable_visualization,
                 },
                 &Default::default(),
             )
@@ -695,6 +728,67 @@ fn main() {
                         WindowEvent::KeyboardInput {
                             input:
                                 glutin::KeyboardInput {
+                                    virtual_keycode: Some(glutin::VirtualKeyCode::Space),
+                                    state: glutin::ElementState::Released,
+                                    ..
+                                },
+                            ..
+                        } => {
+                            let pos = camera.get_position();
+                            let (anchors, repr) = match term_app.anchors {
+                                (None, None) | (Some(_), Some(_)) => {
+                                    ((Some(pos), None), Some(format!("Anchor 1: {})", pos)))
+                                }
+                                (Some(first_anchor), None) => (
+                                    (Some(first_anchor), Some(pos)),
+                                    Some(format!("Anchor 1: {}\nAnchor 2: {}", first_anchor, pos)),
+                                ),
+                                // Shouldn't happen?
+                                _ => ((Some(pos), None), None),
+                            };
+                            term_app.anchors = anchors;
+
+                            match repr {
+                                Some(repr) => term_app.right_pane = repr,
+                                None => {}
+                            };
+                        }
+                        WindowEvent::KeyboardInput {
+                            input:
+                                glutin::KeyboardInput {
+                                    virtual_keycode: Some(glutin::VirtualKeyCode::Return),
+                                    state: glutin::ElementState::Released,
+                                    ..
+                                },
+                            ..
+                        } => match term_app.anchors.clone() {
+                            (Some(a1), Some(a2)) => {
+                                let grid_sdf = export::grid_sdf_async_compute(
+                                    &display,
+                                    &shaders["sdf_shader"],
+                                    elapsed,
+                                    (a1, a2),
+                                );
+
+                                let timestamp = Utc::now().timestamp();
+                                let filename = format!("grid_sdf_{}.sdf", timestamp);
+                                export::grid_sdf_write(&filename, &grid_sdf);
+
+                                term_app.anchors = (None, None);
+
+                                term_app.right_pane =
+                                    format!("Saved grid SDF to file {}", filename);
+                                term_app.alert.1 = false;
+                            }
+                            _ => {
+                                term_app.right_pane =
+                                    "Need both anchors set to compute grid SDF".to_owned();
+                                term_app.alert.1 = true;
+                            }
+                        },
+                        WindowEvent::KeyboardInput {
+                            input:
+                                glutin::KeyboardInput {
                                     virtual_keycode: Some(glutin::VirtualKeyCode::Comma),
                                     ..
                                 },
@@ -715,6 +809,37 @@ fn main() {
                                 u32::min(virtual_resolution.0 + 100, inner_size.width as u32);
                             virtual_resolution.1 =
                                 u32::min(virtual_resolution.1 + 100, inner_size.height as u32);
+                        }
+                        WindowEvent::KeyboardInput {
+                            input:
+                                glutin::KeyboardInput {
+                                    virtual_keycode: Some(glutin::VirtualKeyCode::V),
+                                    state: glutin::ElementState::Released,
+                                    ..
+                                },
+                            ..
+                        } => {
+                            enable_visualization = !enable_visualization;
+                        }
+                        WindowEvent::KeyboardInput {
+                            input:
+                                glutin::KeyboardInput {
+                                    virtual_keycode: Some(glutin::VirtualKeyCode::LBracket),
+                                    ..
+                                },
+                            ..
+                        } => {
+                            visualization_depth -= 0.03;
+                        }
+                        WindowEvent::KeyboardInput {
+                            input:
+                                glutin::KeyboardInput {
+                                    virtual_keycode: Some(glutin::VirtualKeyCode::RBracket),
+                                    ..
+                                },
+                            ..
+                        } => {
+                            visualization_depth += 0.03;
                         }
                         ev => {
                             camera.process_input(&ev, current_frame_time as u64, grabbed);
