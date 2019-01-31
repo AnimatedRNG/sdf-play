@@ -6,11 +6,11 @@ use self::byteorder::{ByteOrder, LittleEndian};
 use std::fs;
 use std::io::{BufReader, BufWriter, Read, Write};
 
-const GRID_SDF_DIM: usize = 32;
-const GRID_SDF_SIZE: usize = GRID_SDF_DIM * GRID_SDF_DIM * GRID_SDF_DIM;
-const GRID_SDF_ELEM_SIZE: usize = 4;
+pub const GRID_SDF_DIM: usize = 32;
+pub const GRID_SDF_SIZE: usize = GRID_SDF_DIM * GRID_SDF_DIM * GRID_SDF_DIM;
+pub const GRID_SDF_ELEM_SIZE: usize = 4;
 
-pub type GridSDF = [[[f32; GRID_SDF_DIM]; GRID_SDF_DIM]; GRID_SDF_DIM];
+pub type GridSDF = Vec<f32>;
 
 pub fn grid_sdf_async_compute(
     display: &glium::backend::Facade,
@@ -65,13 +65,6 @@ pub fn grid_sdf_async_compute(
     )
     .unwrap();
 
-    /*{
-        let mut mapping = buffer.map();
-        for val in mapping.data.iter_mut() {
-            *val = -1.0;
-        }
-    }*/
-
     program.execute(
         uniform!( sdf_block: &*buffer,
                   time: time,
@@ -84,23 +77,13 @@ pub fn grid_sdf_async_compute(
 
     {
         let mapping = buffer.map();
-        let mut sdf_data_3d = [[[0.0; GRID_SDF_DIM]; GRID_SDF_DIM]; GRID_SDF_DIM];
 
-        // This is awful :/
-        for i in 0..GRID_SDF_DIM {
-            for j in 0..GRID_SDF_DIM {
-                for k in 0..GRID_SDF_DIM {
-                    let index = i * GRID_SDF_DIM * GRID_SDF_DIM + j * GRID_SDF_DIM + k;
-                    sdf_data_3d[i][j][k] = mapping.data[index];
-                }
-            }
-        }
-        sdf_data_3d
+        mapping.data.to_vec()
     }
 }
 
 pub fn grid_sdf_read(filename: &str) -> GridSDF {
-    let mut grid_sdf = [[[0.0; GRID_SDF_DIM]; GRID_SDF_DIM]; GRID_SDF_DIM];
+    let mut grid_sdf = Vec::new();
     let mut buffer = Vec::new();
 
     let mut file = BufReader::new(
@@ -134,7 +117,7 @@ pub fn grid_sdf_read(filename: &str) -> GridSDF {
         for i in 0..GRID_SDF_DIM {
             for j in 0..GRID_SDF_DIM {
                 for k in 0..GRID_SDF_DIM {
-                    grid_sdf[i][j][k] = read_f32();
+                    grid_sdf.push(read_f32());
                 }
             }
         }
@@ -165,7 +148,9 @@ pub fn grid_sdf_write(filename: &str, grid: &GridSDF) {
             for k in 0..GRID_SDF_DIM {
                 let mut buf: [u8; 4] = [0; 4];
 
-                LittleEndian::write_f32(&mut buf, grid[i][j][k]);
+                let index = k + j * GRID_SDF_DIM + i * GRID_SDF_DIM * GRID_SDF_DIM;
+
+                LittleEndian::write_f32(&mut buf, grid[index]);
 
                 file.write(&buf).unwrap();
             }
@@ -179,7 +164,7 @@ mod tests {
 
     #[test]
     fn test_read_write() {
-        let grid_sdf = [[[-1.0; GRID_SDF_DIM]; GRID_SDF_DIM]; GRID_SDF_DIM];
+        let grid_sdf = vec![1.0; GRID_SDF_DIM * GRID_SDF_DIM * GRID_SDF_DIM];
 
         grid_sdf_write("/tmp/test_sdf", &grid_sdf);
         let read = grid_sdf_read("/tmp/test_sdf");

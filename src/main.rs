@@ -17,7 +17,9 @@ use glium::index::PrimitiveType;
 use glium::Surface;
 
 use chrono::{TimeZone, Utc};
+use std::borrow::Cow;
 use std::collections::{HashMap, VecDeque};
+use std::env::args;
 use std::fs;
 use std::io::{Read, Write};
 use std::sync::mpsc;
@@ -37,6 +39,15 @@ out vec2 ndc;
 void main() {
     gl_Position = vec4(position, 0.0, 1.0);
     ndc = tex_coords;
+}
+";
+
+const GRID_SDF: &'static str = "
+uniform sampler3D grid_sdf;
+uniform float scale_factor;
+
+float sdf(in vec3 p) {
+    return texture(grid_sdf, p / scale_factor).r;
 }
 ";
 
@@ -218,6 +229,11 @@ fn preprocess_shaders(shaders: &mut Shaders) {
 }
 
 fn generate_sdf_shader<'a>(shaders: &Shaders) -> String {
+    let sdf_shader = if args().len() < 2 {
+        shaders["sdf_shader"].clone()
+    } else {
+        GRID_SDF.to_owned()
+    };
     format!(
         "
     #version 330
@@ -351,7 +367,7 @@ fn generate_sdf_shader<'a>(shaders: &Shaders) -> String {
         noise2D = shaders["noise2D"],
         noise3D = shaders["noise3D"],
         hg_source = shaders["hg_shader"],
-        sdf_source = shaders["sdf_shader"],
+        sdf_source = sdf_shader,
         uv_source = shaders["uv_shader"],
         surface_source = shaders["surface_shader"],
     )
@@ -598,6 +614,33 @@ fn main() {
     let mut visualization_depth: f32 = 0.2;
     let mut enable_visualization: bool = false;
 
+    let grid_texture = if args().len() > 2 {
+        let args_vec: Vec<String> = args().collect();
+        let grid_sdf = export::grid_sdf_read(&args_vec[1]);
+
+        let raw = glium::texture::RawImage3d {
+            data: Cow::from(&grid_sdf),
+            width: export::GRID_SDF_DIM as u32,
+            height: export::GRID_SDF_DIM as u32,
+            depth: export::GRID_SDF_DIM as u32,
+            format: glium::texture::ClientFormat::F32,
+        };
+        Some(glium::texture::Texture3d::new(&display, raw))
+    } else {
+        None
+    };
+
+    let display_texture = glium::texture::Texture2d::empty_with_format(
+        &display,
+        glium::texture::UncompressedFloatFormat::U8U8U8U8,
+        glium::texture::MipmapsOption::NoMipmap,
+        virtual_resolution.0,
+        virtual_resolution.1,
+    )
+    .unwrap();
+    let mut framebuffer =
+        glium::framebuffer::SimpleFrameBuffer::new(&display, &display_texture).unwrap();
+
     // drawing a frame
     loop {
         // Update first person perspective
@@ -616,17 +659,6 @@ fn main() {
         target.clear_color(0.0, 1.0, 0.0, 1.0);
         let elapsed = ((Instant::now() - start_clock).as_secs() as f32)
             + ((Instant::now() - start_clock).subsec_micros() as f32 / 1_000_000.0);
-
-        let display_texture = glium::texture::Texture2d::empty_with_format(
-            &display,
-            glium::texture::UncompressedFloatFormat::U8U8U8U8,
-            glium::texture::MipmapsOption::NoMipmap,
-            virtual_resolution.0,
-            virtual_resolution.1,
-        )
-        .unwrap();
-        let mut framebuffer =
-            glium::framebuffer::SimpleFrameBuffer::new(&display, &display_texture).unwrap();
 
         framebuffer
             .draw(
