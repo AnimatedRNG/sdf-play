@@ -637,19 +637,20 @@ fn main() {
         None
     };
 
-    let display_texture = glium::texture::Texture2d::empty_with_format(
-        &display,
-        glium::texture::UncompressedFloatFormat::U8U8U8U8,
-        glium::texture::MipmapsOption::NoMipmap,
-        virtual_resolution.0,
-        virtual_resolution.1,
-    )
-    .unwrap();
-    let mut framebuffer =
-        glium::framebuffer::SimpleFrameBuffer::new(&display, &display_texture).unwrap();
-
     // drawing a frame
     loop {
+        // TODO: only need to rebuild the display texture after resize!
+        let display_texture = glium::texture::Texture2d::empty_with_format(
+            &display,
+            glium::texture::UncompressedFloatFormat::U8U8U8U8,
+            glium::texture::MipmapsOption::NoMipmap,
+            virtual_resolution.0,
+            virtual_resolution.1,
+        )
+        .unwrap();
+        let mut framebuffer =
+            glium::framebuffer::SimpleFrameBuffer::new(&display, &display_texture).unwrap();
+
         // Update first person perspective
         camera.update();
         inner_size = window.get_inner_size().unwrap();
@@ -749,10 +750,11 @@ fn main() {
         }
 
         term_app.left_pane = format!(
-            "FPS: {}\nframe_time: {}\nVRes: {:?}",
+            "FPS: {}\nframe_time: {}\nVRes: {:?}\nPRes: {:?}",
             1000.0 / frame_time,
             frame_time,
-            virtual_resolution
+            virtual_resolution,
+            (physical_inner_size.width, physical_inner_size.height)
         );
 
         previous_clock = now;
