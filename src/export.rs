@@ -1,6 +1,6 @@
-extern crate nalgebra_glm as glm;
 extern crate byteorder;
 extern crate glium;
+extern crate nalgebra_glm as glm;
 
 use self::byteorder::{ByteOrder, LittleEndian};
 use std::fs;
@@ -164,7 +164,8 @@ mod tests {
 
     #[test]
     fn test_read_write() {
-        let grid_sdf = vec![1.0; GRID_SDF_DIM * GRID_SDF_DIM * GRID_SDF_DIM];
+        let grid_len = GRID_SDF_DIM * GRID_SDF_DIM * GRID_SDF_DIM;
+        let grid_sdf: Vec<_> = (0..grid_len).map(|i| i as f32).collect();
 
         grid_sdf_write("/tmp/test_sdf", &grid_sdf);
         let read = grid_sdf_read("/tmp/test_sdf");

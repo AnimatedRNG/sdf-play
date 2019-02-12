@@ -614,7 +614,7 @@ fn main() {
     let mut visualization_depth: f32 = 0.2;
     let mut enable_visualization: bool = false;
 
-    let grid_texture = if args().len() > 2 {
+    let grid_texture = if args().len() >= 2 {
         let args_vec: Vec<String> = args().collect();
         let grid_sdf = export::grid_sdf_read(&args_vec[1]);
 
@@ -625,7 +625,14 @@ fn main() {
             depth: export::GRID_SDF_DIM as u32,
             format: glium::texture::ClientFormat::F32,
         };
-        Some(glium::texture::Texture3d::new(&display, raw))
+        Some(
+            glium::texture::Texture3d::with_mipmaps(
+                &display,
+                raw,
+                glium::texture::MipmapsOption::NoMipmap,
+            )
+            .unwrap(),
+        )
     } else {
         None
     };
@@ -660,22 +667,50 @@ fn main() {
         let elapsed = ((Instant::now() - start_clock).as_secs() as f32)
             + ((Instant::now() - start_clock).subsec_micros() as f32 / 1_000_000.0);
 
-        framebuffer
-            .draw(
-                &vertex_buffer,
-                &index_buffer,
-                &program,
-                &uniform! {
-                    inv: to_mat4(inv),
-                    origin: to_vec3(origin),
-                    near: 0.1 as f32,
-                    time: elapsed,
-                    visualization_depth: visualization_depth,
-                    enable_visualization: enable_visualization,
-                },
-                &Default::default(),
-            )
-            .unwrap();
+        match &grid_texture {
+            Some(grid_texture) => {
+                framebuffer
+                    .draw(
+                        &vertex_buffer,
+                        &index_buffer,
+                        &program,
+                        &uniform! {
+                            inv: to_mat4(inv),
+                            origin: to_vec3(origin),
+                            near: 0.1 as f32,
+                            time: elapsed,
+                            visualization_depth: visualization_depth,
+                            enable_visualization: enable_visualization,
+                            grid_sdf: grid_texture.sampled()
+                                .magnify_filter(
+                                    glium::uniforms::MagnifySamplerFilter::Linear)
+                                .wrap_function(
+                                    glium::uniforms::SamplerWrapFunction::Clamp),
+                            scale_factor: 0.1f32,
+                        },
+                        &Default::default(),
+                    )
+                    .unwrap();
+            }
+            None => {
+                framebuffer
+                    .draw(
+                        &vertex_buffer,
+                        &index_buffer,
+                        &program,
+                        &uniform! {
+                            inv: to_mat4(inv),
+                            origin: to_vec3(origin),
+                            near: 0.1 as f32,
+                            time: elapsed,
+                            visualization_depth: visualization_depth,
+                            enable_visualization: enable_visualization,
+                        },
+                        &Default::default(),
+                    )
+                    .unwrap();
+            }
+        }
         target.blit_from_simple_framebuffer(
             &framebuffer,
             &glium::Rect {
