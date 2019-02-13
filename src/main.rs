@@ -10,6 +10,10 @@ extern crate chrono;
 #[macro_use]
 extern crate glium;
 
+extern crate h5;
+extern crate hdf5_types;
+extern crate ndarray;
+
 use notify::{DebouncedEvent, RecommendedWatcher, RecursiveMode, Watcher};
 
 use glium::glutin::{self, Event, WindowEvent};
@@ -617,6 +621,7 @@ fn main() {
     let grid_texture = if args().len() >= 2 {
         let args_vec: Vec<String> = args().collect();
         let grid_sdf = export::grid_sdf_read(&args_vec[1]);
+        let grid_sdf = grid_sdf.data.to_vec();
 
         let raw = glium::texture::RawImage3d {
             data: Cow::from(&grid_sdf),

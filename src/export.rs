@@ -6,11 +6,36 @@ use self::byteorder::{ByteOrder, LittleEndian};
 use std::fs;
 use std::io::{BufReader, BufWriter, Read, Write};
 
+use ndarray::prelude::*;
+
 pub const GRID_SDF_DIM: usize = 32;
 pub const GRID_SDF_SIZE: usize = GRID_SDF_DIM * GRID_SDF_DIM * GRID_SDF_DIM;
 pub const GRID_SDF_ELEM_SIZE: usize = 4;
 
-pub type GridSDF = Vec<f32>;
+//pub type GridSDF = Vec<f32>;
+//#[derive(Serialize, Deserialize)]
+
+#[derive(h5::H5Type, Clone, PartialEq, Debug)]
+#[repr(C)]
+pub struct GridSDFMetadata {
+    resolution_x: usize,
+    resolution_y: usize,
+    resolution_z: usize,
+
+    start_x: f32,
+    start_y: f32,
+    start_z: f32,
+
+    end_x: f32,
+    end_y: f32,
+    end_z: f32,
+}
+
+pub struct GridSDF {
+    pub metadata: GridSDFMetadata,
+
+    pub data: Array1<f32>,
+}
 
 pub fn grid_sdf_async_compute(
     display: &glium::backend::Facade,
@@ -18,12 +43,12 @@ pub fn grid_sdf_async_compute(
     time: f32,
     anchors: (glm::Vec3, glm::Vec3),
 ) -> GridSDF {
-    struct GridSDF {
+    struct GPUGridSDF {
         data: [f32],
     }
 
-    implement_buffer_content!(GridSDF);
-    implement_uniform_block!(GridSDF, data);
+    implement_buffer_content!(GPUGridSDF);
+    implement_uniform_block!(GPUGridSDF, data);
 
     let program = glium::program::ComputeShader::from_source(
         display,
@@ -59,7 +84,7 @@ pub fn grid_sdf_async_compute(
     )
     .unwrap();
 
-    let mut buffer = glium::uniforms::UniformBuffer::<GridSDF>::empty_unsized(
+    let mut buffer = glium::uniforms::UniformBuffer::<GPUGridSDF>::empty_unsized(
         display,
         GRID_SDF_SIZE * GRID_SDF_ELEM_SIZE,
     )
@@ -78,84 +103,65 @@ pub fn grid_sdf_async_compute(
     {
         let mapping = buffer.map();
 
-        mapping.data.to_vec()
+        GridSDF {
+            metadata: GridSDFMetadata {
+                resolution_x: GRID_SDF_DIM,
+                resolution_y: GRID_SDF_DIM,
+                resolution_z: GRID_SDF_DIM,
+
+                start_x: anchors.0.x,
+                start_y: anchors.0.y,
+                start_z: anchors.0.z,
+
+                end_x: anchors.1.x,
+                end_y: anchors.1.y,
+                end_z: anchors.1.z,
+            },
+            data: Array::from_vec(mapping.data.to_vec()),
+        }
     }
 }
 
 pub fn grid_sdf_read(filename: &str) -> GridSDF {
-    let mut grid_sdf = Vec::new();
-    let mut buffer = Vec::new();
+    let file = h5::File::open(filename, "r").unwrap();
 
-    let mut file = BufReader::new(
-        fs::File::open(filename).expect(&format!("Unable to read grid SDF from {}", filename)),
-    );
+    let metadata = file.dataset("metadata").unwrap();
 
-    let buffer_data_len = file.read_to_end(&mut buffer).unwrap();
-    assert!(buffer_data_len == 4 * GRID_SDF_DIM * GRID_SDF_DIM * GRID_SDF_DIM + 4 * 3);
+    let metadata = metadata.read_1d::<GridSDFMetadata>().unwrap();
 
-    let mut ptr: usize = 0;
+    let metadata = metadata[0].clone();
 
-    {
-        let mut read_u32 = || {
-            let result = LittleEndian::read_u32(&mut buffer[ptr..ptr + 4]);
-            ptr += 4;
-            return result;
-        };
+    let data = file.dataset("data").unwrap();
+    let data = data.read_2d::<f32>().unwrap();
+    let data: Array1<_> = data.row(0).to_owned();
 
-        assert!(read_u32() == GRID_SDF_DIM as u32);
-        assert!(read_u32() == GRID_SDF_DIM as u32);
-        assert!(read_u32() == GRID_SDF_DIM as u32);
+    GridSDF {
+        metadata: metadata,
+        data: data,
     }
-
-    {
-        let mut read_f32 = || {
-            let result = LittleEndian::read_f32(&mut buffer[ptr..ptr + 4]);
-            ptr += 4;
-            return result;
-        };
-
-        for i in 0..GRID_SDF_DIM {
-            for j in 0..GRID_SDF_DIM {
-                for k in 0..GRID_SDF_DIM {
-                    grid_sdf.push(read_f32());
-                }
-            }
-        }
-    }
-
-    grid_sdf
 }
 
 pub fn grid_sdf_write(filename: &str, grid: &GridSDF) {
-    let mut file = BufWriter::new(
-        fs::File::create(filename).expect(&format!("Unable to write grid SDF to {}", filename)),
-    );
+    let file = h5::File::open(filename, "w").unwrap();
 
-    {
-        let mut write_u32 = |data: usize| {
-            let mut buf = [0; 4];
-            LittleEndian::write_u32(&mut buf, data as u32);
-            file.write(&buf).unwrap();
-        };
+    let metadata = file
+        .new_dataset::<GridSDFMetadata>()
+        .create("metadata", 1)
+        .unwrap();
+    metadata.write(&[grid.metadata.clone()]).unwrap();
 
-        write_u32(GRID_SDF_DIM);
-        write_u32(GRID_SDF_DIM);
-        write_u32(GRID_SDF_DIM);
-    }
-
-    for i in 0..GRID_SDF_DIM {
-        for j in 0..GRID_SDF_DIM {
-            for k in 0..GRID_SDF_DIM {
-                let mut buf: [u8; 4] = [0; 4];
-
-                let index = k + j * GRID_SDF_DIM + i * GRID_SDF_DIM * GRID_SDF_DIM;
-
-                LittleEndian::write_f32(&mut buf, grid[index]);
-
-                file.write(&buf).unwrap();
-            }
-        }
-    }
+    let data = file
+        .new_dataset::<f32>()
+        .create("data", (1, GRID_SDF_SIZE))
+        .unwrap();
+    data.write(
+        &grid
+            .data
+            .clone()
+            .into_shape(IxDyn(&[1, grid.data.shape()[0]]))
+            .unwrap(),
+    )
+    .unwrap();
 }
 
 #[cfg(test)]
@@ -166,10 +172,26 @@ mod tests {
     fn test_read_write() {
         let grid_len = GRID_SDF_DIM * GRID_SDF_DIM * GRID_SDF_DIM;
         let grid_sdf: Vec<_> = (0..grid_len).map(|i| i as f32).collect();
+        let grid_sdf = GridSDF {
+            metadata: GridSDFMetadata {
+                resolution_x: 32,
+                resolution_y: 32,
+                resolution_z: 32,
 
-        grid_sdf_write("/tmp/test_sdf", &grid_sdf);
-        let read = grid_sdf_read("/tmp/test_sdf");
+                start_x: 0f32,
+                start_y: 0f32,
+                start_z: 0f32,
 
-        assert!(grid_sdf == read);
+                end_x: 1f32,
+                end_y: 1f32,
+                end_z: 1f32,
+            },
+            data: arr1(&grid_sdf),
+        };
+
+        grid_sdf_write("/tmp/test_sdf.hdf5", &grid_sdf);
+        let read = grid_sdf_read("/tmp/test_sdf.hdf5");
+
+        assert!(grid_sdf.data == read.data);
     }
 }
