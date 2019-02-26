@@ -4,6 +4,16 @@ extern crate nalgebra_glm as glm;
 use glium::glutin;
 
 const MOUSE_SPEED: f32 = 0.0004;
+const MOVE_SPEED: f32 = 0.02;
+
+pub fn to_arr(mat: &glm::Mat4) -> [[f32; 4]; 4] {
+    [
+        [mat[(0, 0)], mat[(0, 1)], mat[(0, 2)], mat[(0, 3)]],
+        [mat[(1, 0)], mat[(1, 1)], mat[(1, 2)], mat[(1, 3)]],
+        [mat[(2, 0)], mat[(2, 1)], mat[(2, 2)], mat[(2, 3)]],
+        [mat[(3, 0)], mat[(3, 1)], mat[(3, 2)], mat[(3, 3)]],
+    ]
+}
 
 pub struct CameraState {
     aspect_ratio: f32,
@@ -137,39 +147,39 @@ impl CameraState {
         );
 
         if self.moving_up {
-            self.position.x += u.x * 0.01;
-            self.position.y += u.y * 0.01;
-            self.position.z += u.z * 0.01;
+            self.position.x += u.x * MOVE_SPEED;
+            self.position.y += u.y * MOVE_SPEED;
+            self.position.z += u.z * MOVE_SPEED;
         }
 
         if self.moving_left {
-            self.position.x -= s.x * 0.01;
-            self.position.y -= s.y * 0.01;
-            self.position.z -= s.z * 0.01;
+            self.position.x -= s.x * MOVE_SPEED;
+            self.position.y -= s.y * MOVE_SPEED;
+            self.position.z -= s.z * MOVE_SPEED;
         }
 
         if self.moving_down {
-            self.position.x -= u.x * 0.01;
-            self.position.y -= u.y * 0.01;
-            self.position.z -= u.z * 0.01;
+            self.position.x -= u.x * MOVE_SPEED;
+            self.position.y -= u.y * MOVE_SPEED;
+            self.position.z -= u.z * MOVE_SPEED;
         }
 
         if self.moving_right {
-            self.position.x += s.x * 0.01;
-            self.position.y += s.y * 0.01;
-            self.position.z += s.z * 0.01;
+            self.position.x += s.x * MOVE_SPEED;
+            self.position.y += s.y * MOVE_SPEED;
+            self.position.z += s.z * MOVE_SPEED;
         }
 
         if self.moving_forward {
-            self.position.x += f.x * 0.01;
-            self.position.y += f.y * 0.01;
-            self.position.z += f.z * 0.01;
+            self.position.x += f.x * MOVE_SPEED;
+            self.position.y += f.y * MOVE_SPEED;
+            self.position.z += f.z * MOVE_SPEED;
         }
 
         if self.moving_backward {
-            self.position.x -= f.x * 0.01;
-            self.position.y -= f.y * 0.01;
-            self.position.z -= f.z * 0.01;
+            self.position.x -= f.x * MOVE_SPEED;
+            self.position.y -= f.y * MOVE_SPEED;
+            self.position.z -= f.z * MOVE_SPEED;
         }
     }
 

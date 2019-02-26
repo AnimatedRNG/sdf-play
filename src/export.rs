@@ -3,6 +3,7 @@ extern crate glium;
 extern crate nalgebra_glm as glm;
 
 use self::byteorder::{ByteOrder, LittleEndian};
+use camera::{to_arr, CameraState};
 use std::fs;
 use std::io::{BufReader, BufWriter, Read, Write};
 
@@ -26,6 +27,9 @@ pub struct GridSDFMetadata {
     pub end_x: f32,
     pub end_y: f32,
     pub end_z: f32,
+
+    pub perspective_matrix: [[f32; 4]; 4],
+    pub view_matrix: [[f32; 4]; 4],
 }
 
 pub struct GridSDF {
@@ -39,6 +43,7 @@ pub fn grid_sdf_async_compute(
     sdf: &str,
     time: f32,
     anchors: (glm::Vec3, glm::Vec3),
+    camera: &CameraState,
 ) -> GridSDF {
     struct GPUGridSDF {
         data: [f32],
@@ -113,6 +118,9 @@ pub fn grid_sdf_async_compute(
                 end_x: anchors.1.x,
                 end_y: anchors.1.y,
                 end_z: anchors.1.z,
+
+                perspective_matrix: to_arr(&camera.get_perspective()),
+                view_matrix: to_arr(&camera.get_view()),
             },
             data: Array::from_vec(mapping.data.to_vec()),
         }
@@ -182,6 +190,9 @@ mod tests {
                 end_x: 1f32,
                 end_y: 1f32,
                 end_z: 1f32,
+
+                perspective_matrix: to_arr(&glm::Mat4::identity()),
+                view_matrix: to_arr(&glm::Mat4::identity()),
             },
             data: arr1(&grid_sdf),
         };

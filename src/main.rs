@@ -56,8 +56,74 @@ uniform vec3 a1;
 uniform vec3 a2;
 uniform float scale_factor;
 
+float march_to_box(in vec3 p, in vec3 ray_dir) {
+    float tmin = (a1.x - p.x) / ray_dir.x;
+    float tmax = (a2.x - p.x) / ray_dir.x;
+    float tmp;
+
+    if (tmin > tmax) {
+        tmp = tmin;
+        tmin = tmax;
+        tmax = tmp;
+    }
+
+    float tymin = (a1.y - p.y) / ray_dir.y;
+    float tymax = (a2.y - p.y) / ray_dir.y;
+
+    if (tymin > tymax) {
+        tmp = tymin;
+        tymin = tymax;
+        tymax = tmp;
+    }
+
+    if ((tmin > tymax) || (tymin > tmax)) {
+        return -1.0;
+    }
+
+    if (tymin > tmin) {
+        tmin = tymin;
+    }
+
+    if (tymax < tmax) {
+        tmax = tymax;
+    }
+
+    float tzmin = (a1.z - p.z) / ray_dir.z;
+    float tzmax = (a2.z - p.z) / ray_dir.z;
+
+    if (tzmin > tzmax) {
+        tmp = tzmin;
+        tzmin = tzmax;
+        tzmax = tmp;
+    }
+
+    if ((tmin > tzmax) || (tzmin > tmax)) {
+        return -1.0;
+    }
+
+    if (tzmin > tmin) {
+        tmin = tzmin;
+    }
+
+    if (tzmax < tmax) {
+        tmax = tzmax;
+    }
+
+    return min(tmin, tmax);
+}
+
 float sdf(in vec3 p, in vec3 ray_dir) {
-    return texture(grid_sdf, p / scale_factor).r;
+    if (all(greaterThanEqual(p, a1)) && all(lessThanEqual(p, a2))) {
+        vec3 interp = (p - a1) / (a2 - a1);
+        return texture(grid_sdf, interp / scale_factor).r;
+    } else {
+        float box_dist = march_to_box(p, ray_dir) + 1e-4;
+        if (box_dist > 0) {
+            return box_dist;
+        } else {
+            return 1e8;
+        }
+    }
 }
 ";
 
@@ -720,6 +786,8 @@ fn main() {
                             grid_sdf: grid_texture.sampled()
                                 .magnify_filter(
                                     glium::uniforms::MagnifySamplerFilter::Linear)
+                                .minify_filter(
+                                    glium::uniforms::MinifySamplerFilter::Linear)
                                 .wrap_function(
                                     glium::uniforms::SamplerWrapFunction::Clamp),
                             a1: (a1.x, a1.y, a1.z),
@@ -878,6 +946,7 @@ fn main() {
                                     &shaders["sdf_shader"],
                                     elapsed,
                                     (a1, a2),
+                                    &camera,
                                 );
 
                                 let timestamp = Utc::now().timestamp();
