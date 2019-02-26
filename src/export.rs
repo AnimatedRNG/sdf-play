@@ -1,11 +1,7 @@
-extern crate byteorder;
 extern crate glium;
 extern crate nalgebra_glm as glm;
 
-use self::byteorder::{ByteOrder, LittleEndian};
 use camera::{to_arr, CameraState};
-use std::fs;
-use std::io::{BufReader, BufWriter, Read, Write};
 
 use ndarray::prelude::*;
 

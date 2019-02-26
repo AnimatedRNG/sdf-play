@@ -20,7 +20,7 @@ use glium::glutin::{self, Event, WindowEvent};
 use glium::index::PrimitiveType;
 use glium::Surface;
 
-use chrono::{TimeZone, Utc};
+use chrono::Utc;
 use std::borrow::Cow;
 use std::collections::{HashMap, VecDeque};
 use std::env::args;
