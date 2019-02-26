@@ -47,10 +47,16 @@ void main() {
 ";
 
 const GRID_SDF: &'static str = "
+#define USE_RAY_DIRECTION
+
 uniform sampler3D grid_sdf;
+
+// Box dims
+uniform vec3 a1;
+uniform vec3 a2;
 uniform float scale_factor;
 
-float sdf(in vec3 p) {
+float sdf(in vec3 p, in vec3 ray_dir) {
     return texture(grid_sdf, p / scale_factor).r;
 }
 ";
@@ -265,12 +271,21 @@ fn generate_sdf_shader<'a>(shaders: &Shaders) -> String {
 
     {sdf_source}
 
+    float near_sdf(in vec3 p) {{
+#ifdef USE_RAY_DIRECTION
+            return sdf(p, vec3(0.0));
+#else
+            return sdf(p);
+#endif // USE_RAY_DIRECTION
+    }}
+
     float h(in vec3 p, in uint index) {{
         vec3 forward = p;
         vec3 backward = p;
         forward[index] += EPS;
         backward[index] -= EPS;
-        return dot(vec3(sdf(backward), sdf(p), sdf(forward)), vec3(1.0, 2.0, 1.0));
+        return dot(vec3(near_sdf(backward), near_sdf(p), near_sdf(forward)),
+                   vec3(1.0, 2.0, 1.0));
     }}
 
     float h_p(in vec3 p, in uint index) {{
@@ -278,7 +293,8 @@ fn generate_sdf_shader<'a>(shaders: &Shaders) -> String {
         vec3 backward = p;
         forward[index] += EPS;
         backward[index] -= EPS;
-        return dot(vec2(sdf(backward), sdf(forward)), vec2(1.0, -1.0));
+        return dot(vec2(near_sdf(backward), near_sdf(forward)),
+                        vec2(1.0, -1.0));
     }}
 
     vec3 sobel_gradient_estimate(in vec3 p) {{
@@ -290,9 +306,9 @@ fn generate_sdf_shader<'a>(shaders: &Shaders) -> String {
     }}
 
     vec3 simple_gradient_estimate(in vec3 p) {{
-        float h_x = sdf(p + vec3(EPS, 0.0, 0.0)) - sdf(p - vec3(EPS, 0.0, 0.0));
-        float h_y = sdf(p + vec3(0.0, EPS, 0.0)) - sdf(p - vec3(0.0, EPS, 0.0));
-        float h_z = sdf(p + vec3(0.0, 0.0, EPS)) - sdf(p - vec3(0.0, 0.0, EPS));
+        float h_x = near_sdf(p + vec3(EPS, 0.0, 0.0)) - near_sdf(p - vec3(EPS, 0.0, 0.0));
+        float h_y = near_sdf(p + vec3(0.0, EPS, 0.0)) - near_sdf(p - vec3(0.0, EPS, 0.0));
+        float h_z = near_sdf(p + vec3(0.0, 0.0, EPS)) - near_sdf(p - vec3(0.0, 0.0, EPS));
 
         return normalize(vec3(h_x, h_y, h_z));
     }}
@@ -307,7 +323,11 @@ fn generate_sdf_shader<'a>(shaders: &Shaders) -> String {
         // Perform a few iterations of sphere tracing,
         // exit if we're too far away
         for (int k = 0; k < 60; k++) {{
+#ifdef USE_RAY_DIRECTION
+            radius = sdf(current_point, ray_vector);
+#else
             radius = sdf(current_point);
+#endif // USE_RAY_DIRECTION
             total_traveled += radius;
             current_point += ray_vector * radius;
 
@@ -331,7 +351,12 @@ fn generate_sdf_shader<'a>(shaders: &Shaders) -> String {
         vec3 current_point = ray_origin;
 
         for (int i = 0; i < num_steps; i++) {{
+#ifdef USE_RAY_DIRECTION
+            float radius = sdf(current_point, ray_vec);
+#else
             float radius = sdf(current_point);
+#endif // USE_RAY_DIRECTION
+
             current_point += ray_vec * visualization_depth;
             accum += radius;
         }}
@@ -621,6 +646,7 @@ fn main() {
     let grid_texture = if args().len() >= 2 {
         let args_vec: Vec<String> = args().collect();
         let grid_sdf = export::grid_sdf_read(&args_vec[1]);
+        let metadata = grid_sdf.metadata;
         let grid_sdf = grid_sdf.data.to_vec();
 
         let raw = glium::texture::RawImage3d {
@@ -630,14 +656,15 @@ fn main() {
             depth: export::GRID_SDF_DIM as u32,
             format: glium::texture::ClientFormat::F32,
         };
-        Some(
+        Some((
+            metadata,
             glium::texture::Texture3d::with_mipmaps(
                 &display,
                 raw,
                 glium::texture::MipmapsOption::NoMipmap,
             )
             .unwrap(),
-        )
+        ))
     } else {
         None
     };
@@ -675,6 +702,9 @@ fn main() {
 
         match &grid_texture {
             Some(grid_texture) => {
+                let (metadata, grid_texture) = grid_texture;
+                let a1 = glm::vec3(metadata.start_x, metadata.start_y, metadata.start_z);
+                let a2 = glm::vec3(metadata.end_x, metadata.end_y, metadata.end_z);
                 framebuffer
                     .draw(
                         &vertex_buffer,
@@ -692,7 +722,9 @@ fn main() {
                                     glium::uniforms::MagnifySamplerFilter::Linear)
                                 .wrap_function(
                                     glium::uniforms::SamplerWrapFunction::Clamp),
-                            scale_factor: 0.1f32,
+                            a1: (a1.x, a1.y, a1.z),
+                            a2: (a2.x, a2.y, a2.z),
+                            scale_factor: 1.0f32,
                         },
                         &Default::default(),
                     )
@@ -837,6 +869,10 @@ fn main() {
                             ..
                         } => match term_app.anchors.clone() {
                             (Some(a1), Some(a2)) => {
+                                let (a1, a2) = (
+                                    glm::vec3(a1.x.min(a2.x), a1.y.min(a2.y), a1.z.min(a2.z)),
+                                    glm::vec3(a1.x.max(a2.x), a1.y.max(a2.y), a1.z.max(a2.z)),
+                                );
                                 let grid_sdf = export::grid_sdf_async_compute(
                                     &display,
                                     &shaders["sdf_shader"],
@@ -845,7 +881,7 @@ fn main() {
                                 );
 
                                 let timestamp = Utc::now().timestamp();
-                                let filename = format!("grid_sdf_{}.sdf", timestamp);
+                                let filename = format!("grid_sdf_{}.hdf5", timestamp);
                                 export::grid_sdf_write(&filename, &grid_sdf);
 
                                 term_app.anchors = (None, None);

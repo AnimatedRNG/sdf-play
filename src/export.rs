@@ -12,23 +12,20 @@ pub const GRID_SDF_DIM: usize = 32;
 pub const GRID_SDF_SIZE: usize = GRID_SDF_DIM * GRID_SDF_DIM * GRID_SDF_DIM;
 pub const GRID_SDF_ELEM_SIZE: usize = 4;
 
-//pub type GridSDF = Vec<f32>;
-//#[derive(Serialize, Deserialize)]
-
 #[derive(h5::H5Type, Clone, PartialEq, Debug)]
 #[repr(C)]
 pub struct GridSDFMetadata {
-    resolution_x: usize,
-    resolution_y: usize,
-    resolution_z: usize,
+    pub resolution_x: usize,
+    pub resolution_y: usize,
+    pub resolution_z: usize,
 
-    start_x: f32,
-    start_y: f32,
-    start_z: f32,
+    pub start_x: f32,
+    pub start_y: f32,
+    pub start_z: f32,
 
-    end_x: f32,
-    end_y: f32,
-    end_z: f32,
+    pub end_x: f32,
+    pub end_y: f32,
+    pub end_z: f32,
 }
 
 pub struct GridSDF {
